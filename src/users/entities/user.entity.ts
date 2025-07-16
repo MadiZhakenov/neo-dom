@@ -13,4 +13,10 @@ export class User {
   password_hash: string;
   @Column({ default: 'Базовый' })
   tariff: string;
+
+  @Column({ type: 'int', default: 0 })
+  generation_count: number;
+
+  @Column({ type: 'timestamp', nullable: true, default: null })
+  last_generation_date: Date | null;
 }
