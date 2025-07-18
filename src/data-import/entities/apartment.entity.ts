@@ -1,17 +1,17 @@
 import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from 'typeorm';
 import { Balance } from './balance.entity';
 
-@Entity()
+@Entity('apartments')
 export class Apartment {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column()
+  @Column({ unique: true })
   number: string;
 
-  @Column()
-  ownerName: string;
+  @Column({ nullable: true })
+  address?: string;
 
-  @OneToMany(() => Balance, (balance) => balance.apartment)
+  @OneToMany(() => Balance, (b) => b.apartment)
   balances: Balance[];
 }

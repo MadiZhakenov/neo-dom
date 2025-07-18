@@ -1,16 +1,18 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
 import { Apartment } from './apartment.entity';
 
-@Entity()
+@Entity('balances')
 export class Balance {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column('decimal', { precision: 10, scale: 2 })
-  amount: number;
-
-  @ManyToOne(() => Apartment, (apartment) => apartment.balances, {
-    onDelete: 'CASCADE',
-  })
+  @ManyToOne(() => Apartment, (apt) => apt.balances, { onDelete: 'CASCADE', eager: true })
+  @JoinColumn()
   apartment: Apartment;
+
+  @Column('date')
+  as_of_date: string;
+
+  @Column('numeric', { precision: 14, scale: 2, default: 0 })
+  amount: string;
 }

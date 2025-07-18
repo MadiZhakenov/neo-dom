@@ -20,15 +20,11 @@ export class DataImportService {
   constructor(
     private readonly dataSource: DataSource,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-    @InjectRepository(Apartment)
-    private readonly apartmentRepo: Repository<Apartment>,
-    @InjectRepository(Balance)
-    private readonly balanceRepo: Repository<Balance>,
+    @InjectRepository(Apartment) private readonly apartmentRepo: Repository<Apartment>,
+    @InjectRepository(Balance) private readonly balanceRepo: Repository<Balance>,
   ) {}
 
   async importFromExcel(file: Express.Multer.File, opts: { mode: Mode }): Promise<ImportResult> {
-    if (!file) throw new BadRequestException('Файл не загружен.');
-
     const workbook = XLSX.read(file.buffer, { type: 'buffer' });
 
     const residentsSheet = workbook.Sheets['Residents'];
@@ -47,7 +43,7 @@ export class DataImportService {
 
     const errors: string[] = [];
 
-    return await this.dataSource.transaction(async (manager) => {
+    return this.dataSource.transaction(async (manager) => {
       if (opts.mode === 'replace') {
         await manager.clear(Balance);
         await manager.clear(Apartment);
@@ -55,7 +51,7 @@ export class DataImportService {
 
       let residentsImported = 0;
       for (const r of residents) {
-        const email = String(r['email'] || '').trim();
+        const email = (r['email'] ?? '').toString().trim();
         if (!email) {
           errors.push('Пустой email в Residents.');
           continue;
@@ -65,18 +61,15 @@ export class DataImportService {
         if (!user) {
           user = manager.create(User, {
             email,
-            password_hash: 'temp', // TODO: нормальный пароль/инвайт
+            password_hash: 'temp',
             tariff: r['tariff'] || 'Базовый',
             full_name: r['full_name'] || null,
             phone: r['phone'] || null,
-            role: r['role'] || 'resident',
           });
         } else {
-          // обновляем
           user.full_name = r['full_name'] ?? user.full_name;
           user.phone = r['phone'] ?? user.phone;
           user.tariff = r['tariff'] ?? user.tariff;
-          user.role = (r['role'] as any) || user.role;
         }
         await manager.save(User, user);
         residentsImported++;
@@ -84,42 +77,27 @@ export class DataImportService {
 
       let apartmentsImported = 0;
       for (const a of apartments) {
-        const number = String(a['number'] || '').trim();
+        const number = (a['number'] ?? '').toString().trim();
         if (!number) {
           errors.push('Пустой number в Apartments.');
           continue;
         }
 
-        const ownerEmail = (a['owner_email'] || '').trim();
-        let owner: User | null = null;
-        if (ownerEmail) {
-          owner = await manager.findOne(User, { where: { email: ownerEmail } });
-          if (!owner) {
-            errors.push(`Owner email ${ownerEmail} не найден (Apartment ${number}).`);
-          }
-        }
-
+        const address = (a['address'] ?? '').toString().trim();
         let apartment = await manager.findOne(Apartment, { where: { number } });
         if (!apartment) {
-          apartment = manager.create(Apartment, {
-            number,
-            address: a['address'] || '',
-            resident: owner ?? null,
-          });
+          apartment = manager.create(Apartment, { number, address });
         } else {
-          apartment.address = a['address'] ?? apartment.address;
-          apartment.resident = owner ?? apartment.resident;
+          apartment.address = address || apartment.address;
         }
         await manager.save(Apartment, apartment);
         apartmentsImported++;
       }
 
+      // --- Balances ---
       let balancesImported = 0;
       for (const b of balances) {
-        const aptNumber = String(b['apartment_number'] || '').trim();
-        const amountRaw = b['amount'];
-        const amount = amountRaw === undefined || amountRaw === null ? 0 : Number(amountRaw);
-
+        const aptNumber = (b['apartment_number'] ?? '').toString().trim();
         if (!aptNumber) {
           errors.push('Пустой apartment_number в Balances.');
           continue;
@@ -127,14 +105,14 @@ export class DataImportService {
 
         const apartment = await manager.findOne(Apartment, { where: { number: aptNumber } });
         if (!apartment) {
-          errors.push(`Апартамент ${aptNumber} для баланса не найден.`);
+          errors.push(`Квартира не найдена: ${aptNumber}.`);
           continue;
         }
 
-        const balance = manager.create(Balance, {
-          apartment,
-          amount,
-        });
+        const amount = Number(b['amount'] ?? 0);
+        const as_of_date = this.parseDateField(b['as_of_date']) ?? this.todayISO();
+
+        const balance = manager.create(Balance, { apartment, amount: amount.toFixed(2), as_of_date });
         await manager.save(Balance, balance);
         balancesImported++;
       }
@@ -146,5 +124,20 @@ export class DataImportService {
         errors,
       };
     });
+  }
+
+  private parseDateField(v: any): string | null {
+    if (!v) return null;
+    try {
+      const d = new Date(v);
+      if (isNaN(d.getTime())) return null;
+      return d.toISOString().slice(0, 10); // YYYY-MM-DD
+    } catch {
+      return null;
+    }
+  }
+
+  private todayISO(): string {
+    return new Date().toISOString().slice(0, 10);
   }
 }
