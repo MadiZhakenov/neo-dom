@@ -4,9 +4,6 @@ import { FinanceSummary } from './finance.service';
 
 @Injectable()
 export class PdfReportService {
-  /**
-   * Создаём PDF со списком квартир и диаграммой.
-   */
   async build(summary: FinanceSummary, chartPng?: Buffer): Promise<Buffer> {
     return new Promise<Buffer>((resolve) => {
       const doc = new PDFDocument({ size: 'A4', margin: 40 });

@@ -6,9 +6,9 @@ import { User } from '../users/entities/user.entity';
 import { Apartment } from './entities/apartment.entity';
 import { Balance } from './entities/balance.entity';
 
-type Mode = 'append' | 'replace';
+export type Mode = 'append' | 'replace';
 
-interface ImportResult {
+export interface ImportResult {
   residentsImported: number;
   apartmentsImported: number;
   balancesImported: number;
@@ -94,7 +94,6 @@ export class DataImportService {
         apartmentsImported++;
       }
 
-      // --- Balances ---
       let balancesImported = 0;
       for (const b of balances) {
         const aptNumber = (b['apartment_number'] ?? '').toString().trim();
@@ -112,7 +111,11 @@ export class DataImportService {
         const amount = Number(b['amount'] ?? 0);
         const as_of_date = this.parseDateField(b['as_of_date']) ?? this.todayISO();
 
-        const balance = manager.create(Balance, { apartment, amount: amount.toFixed(2), as_of_date });
+        const balance = manager.create(Balance, {
+          apartment,
+          amount: amount.toFixed(2),
+          as_of_date,
+        });
         await manager.save(Balance, balance);
         balancesImported++;
       }
@@ -131,7 +134,7 @@ export class DataImportService {
     try {
       const d = new Date(v);
       if (isNaN(d.getTime())) return null;
-      return d.toISOString().slice(0, 10); // YYYY-MM-DD
+      return d.toISOString().slice(0, 10);
     } catch {
       return null;
     }
