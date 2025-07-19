@@ -26,15 +26,13 @@ export class AiController {
   ) {}
 
   @UseGuards(JwtAuthGuard)
-  @Post('generate-document')
+  @Post('assistant')
   async generateDocument(
     @Request() req,
     @Body() generateDto: GenerateDocumentDto,
     @Res() res: Response,
   ) {
-    const userPayload = req.user;
-    const user = await this.usersService.findOneByEmail(userPayload.email);
-
+    const user = await this.usersService.findOneByEmail(req.user.email);
     if (!user) {
       throw new NotFoundException('Пользователь не найден.');
     }
@@ -42,7 +40,6 @@ export class AiController {
     if (user.tariff === 'Базовый') {
       const now = new Date();
       const lastGen = user.last_generation_date;
-
       const isNewMonth =
         !lastGen ||
         lastGen.getMonth() !== now.getMonth() ||
@@ -60,13 +57,23 @@ export class AiController {
       }
     }
 
-    const generatedText = await this.aiService.generateText(generateDto.prompt);
+    const { intent, text } = await this.aiService.generateText(generateDto.prompt);
     await this.usersService.incrementGenerationCount(user.id);
 
-    const pdfBuffer = await this.pdfService.createPdfFromText(generatedText);
+    if (intent === 'generate_document') {
+      console.log(`[AI Controller] Намерение: ${intent}. Генерирую файл PDF.`);
 
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'attachment; filename=generated-document.pdf');
-    res.send(pdfBuffer);
+      const pdfBuffer = await this.pdfService.createPdfFromText(text);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'attachment; filename=generated-document.pdf');
+      res.send(pdfBuffer);
+
+    } else {
+      console.log(`[AI Controller] Намерение: ${intent}. Возвращаю текстовый ответ.`);
+
+      res.status(200).json({
+        aiResponse: text,
+      });
+    }
   }
 }

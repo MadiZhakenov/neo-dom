@@ -44,4 +44,14 @@ export class UsersService {
       generation_count: 0,
     });
   }
+
+  async resetGenerationsByEmail(email: string): Promise<User | null> {
+    const user = await this.findOneByEmail(email);
+    if (!user) {
+      return null;
+    }
+    user.generation_count = 0;
+    user.last_generation_date = null;
+    return this.usersRepository.save(user);
+  }
 }
