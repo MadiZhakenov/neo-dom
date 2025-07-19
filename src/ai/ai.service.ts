@@ -3,104 +3,93 @@ import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import * as fs from 'fs';
 import * as path from 'path';
+import { MemoryVectorStore } from "langchain/vectorstores/memory";
+import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
+import { TaskType } from "@google/generative-ai";
 
 @Injectable()
 export class AiService implements OnModuleInit {
-  // Инициализированная модель Gemini
   private model: any;
-
-  // PDF-файлы из базы знаний в формате, подходящем для Gemini (base64)
-  private knowledgeBaseFiles: any[] = [];
+  private vectorStore: MemoryVectorStore;
 
   constructor(private readonly configService: ConfigService) {}
 
-  /**
-   * Инициализация AI-модуля при старте приложения:
-   * - получает API-ключ,
-   * - инициализирует модель Gemini,
-   * - загружает PDF-файлы из базы знаний в память.
-   */
-  onModuleInit() {
+  async onModuleInit() {
     console.log('[AI Service] Модуль инициализируется...');
-
+    
     const apiKey = this.configService.get<string>('GEMINI_API_KEY');
     if (!apiKey) {
       throw new Error('GEMINI_API_KEY не найден в .env файле!');
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
-
-    // Используем модель, которая поддерживает работу с файлами
     this.model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
-
+    
     console.log('[AI Service] Модель Gemini успешно инициализирована.');
-    this.loadKnowledgeBase();
+    
+    await this.initializeVectorStore(apiKey);
   }
 
-  /**
-   * Загружает все PDF-файлы из папки `knowledge_base`, конвертирует их в base64
-   * и сохраняет в массиве, чтобы использовать при генерации контекста для AI.
-   */
-  private loadKnowledgeBase() {
-    console.log('[AI Service] Загрузка базы знаний в память...');
+  private async initializeVectorStore(apiKey: string) {
+    console.log('[AI Service] Инициализация векторной базы знаний...');
     try {
-      const knowledgeBaseDir = path.join(process.cwd(), 'knowledge_base');
-      const fileNames = fs.readdirSync(knowledgeBaseDir);
-      const pdfFiles = fileNames.filter(f => f.toLowerCase().endsWith('.pdf'));
-
-      for (const fileName of pdfFiles) {
-        const filePath = path.join(knowledgeBaseDir, fileName);
-        const fileData = fs.readFileSync(filePath);
-        const base64Data = fileData.toString('base64');
-
-        // Структура, которую принимает Gemini в parts[]
-        this.knowledgeBaseFiles.push({
-          inlineData: {
-            data: base64Data,
-            mimeType: 'application/pdf',
-          },
-        });
+      const cacheDir = path.join(process.cwd(), '.pdf-cache');
+      if (!fs.existsSync(cacheDir)) {
+        console.warn('[AI Service] Папка .pdf-cache не найдена. База знаний пуста.');
+        return;
       }
-
-      console.log(`[AI Service] База знаний загружена. ${this.knowledgeBaseFiles.length} файлов готово к использованию.`);
-    } catch (error) {
-      console.error('[AI Service] КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить файлы из базы знаний. Проверьте папку knowledge_base.', error);
-    }
-  }
-
-  /**
-   * Основной метод генерации ответа от AI.
-   * Подключает все загруженные PDF-файлы как контекст и отправляет промпт пользователю.
-   *
-   * @param userPrompt - Запрос пользователя
-   * @returns - Ответ, сгенерированный моделью Gemini
-   */
-  async generateText(userPrompt: string): Promise<string> {
-    if (this.knowledgeBaseFiles.length === 0) {
-      console.warn('[AI Service] База знаний пуста. Ответ будет сгенерирован без дополнительного контекста.');
-    }
-
-    try {
-      console.log(`[AI Service] Отправка промпта в Gemini с контекстом из ${this.knowledgeBaseFiles.length} файлов...`);
-
-      // parts[] может содержать как текст, так и файлы — в правильной последовательности
-      const fullPromptParts = [
-        ...this.knowledgeBaseFiles,
-        {
-          text: "Ты — помощник по вопросам управления ОСИ в Казахстане. Отвечай строго на основе предоставленных документов (стандарты СТ РК). Если в документах нет ответа на вопрос, вежливо сообщи об этом и не придумывай информацию."
-        },
-        { text: userPrompt },
-      ];
-
-      const result = await this.model.generateContent({
-        contents: [{ role: "user", parts: fullPromptParts }]
+      const fileNames = fs.readdirSync(cacheDir);
+      const documents = fileNames.map(fileName => {
+        const filePath = path.join(cacheDir, fileName);
+        return {
+          pageContent: fs.readFileSync(filePath, 'utf-8'),
+          metadata: { source: fileName },
+        };
       });
 
+      if (documents.length === 0) {
+        console.warn('[AI Service] В кэше нет документов для индексации.');
+        return;
+      }
+
+      const embeddings = new GoogleGenerativeAIEmbeddings({
+        apiKey,
+        model: "embedding-001",
+        taskType: TaskType.RETRIEVAL_DOCUMENT,
+      });
+
+      this.vectorStore = await MemoryVectorStore.fromDocuments(documents, embeddings);
+      console.log(`[AI Service] Векторная база знаний создана. Проиндексировано ${documents.length} документов.`);
+
+    } catch (error) {
+      console.error('[AI Service] Ошибка при инициализации векторной базы:', error);
+    }
+  }
+
+  async generateText(userPrompt: string): Promise<string> {
+    if (!this.vectorStore) {
+        return "Извините, база знаний сейчас недоступна. Попробуйте позже.";
+    }
+
+    try {
+      console.log(`[AI Service] Поиск релевантных документов для промпта: "${userPrompt}"`);
+
+      const relevantDocs = await this.vectorStore.similaritySearch(userPrompt, 3);
+      const context = relevantDocs.map(doc => `Документ: ${doc.metadata.source}\n\n${doc.pageContent}`).join('\n\n---\n\n');
+
+      console.log(`[AI Service] Найдено ${relevantDocs.length} релевантных документов. Отправка в Gemini...`);
+
+      const result = await this.model.generateContent([
+        `Ты — помощник по вопросам управления ОСИ в Казахстане. Отвечай строго на основе предоставленного ниже контекста из документов. Если в контексте нет ответа, вежливо сообщи об этом. Контекст:\n\n${context}`,
+        `Вопрос пользователя: "${userPrompt}"`,
+      ]);
+      
       const response = result.response;
       const text = response.text();
-
+      
       console.log('[AI Service] Получен ответ от Gemini.');
       return text;
+
     } catch (error) {
       console.error('[AI Service] Ошибка при генерации текста:', error);
       throw new Error('Не удалось сгенерировать ответ от AI.');

@@ -1,5 +1,3 @@
-// upload-knowledge-base.js
-
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
@@ -56,7 +54,7 @@ async function main() {
                 fileObject: processedFile
             });
         }
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Пауза между запросами
     }
 
     console.log('\n--- ОБРАБОТКА ЗАВЕРШЕНА ---');
@@ -71,10 +69,21 @@ async function main() {
         }));
         console.log(JSON.stringify(fileDataForCode, null, 2));
         
-        // Пример использования с моделью Gemini
-        console.log('\n--- ПРИМЕР ИСПОЛЬЗОВАНИЯ С МОДЕЛЬЮ ---');
+        console.log('\nПример использования в AiService:');
+        console.log(`
+        // В вашем AiService используйте эти файлы так:
         const model = genAI.getGenerativeModel({ model: "gemini-pro-vision" });
-        // Здесь вы можете использовать processedFiles[0].fileObject с моделью
+        
+        const result = await model.generateContent({
+            contents: [{
+                role: "user",
+                parts: [
+                    ...processedFiles.map(f => f.fileObject),
+                    { text: "Ваш промпт здесь" }
+                ]
+            }]
+        });
+        `);
     }
 }
 
