@@ -26,20 +26,6 @@ export class AiController {
   ) {}
 
   @UseGuards(JwtAuthGuard)
-  @Post('test-prompt')
-  async testPrompt(
-    @Request() req,
-    @Body() generateDto: GenerateDocumentDto,
-  ) {
-    console.log(`[DEBUG] Тестовый запрос от ${req.user.email}`);
-    const generatedText = await this.aiService.generateText(generateDto.prompt);
-    return {
-      response_from_ai: generatedText,
-    };
-  }
-
-
-  @UseGuards(JwtAuthGuard)
   @Post('generate-document')
   async generateDocument(
     @Request() req,
