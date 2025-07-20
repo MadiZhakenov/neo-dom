@@ -70,7 +70,6 @@ export class AiController {
     }
   }
 
-  @UseGuards(JwtAuthGuard)
   @Post('generate-doc')
   async generateFinalDocument(
     @Body() generateDocDto: GenerateFinalDocDto,
@@ -88,7 +87,9 @@ export class AiController {
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
       res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodedFileName}`);
       res.send(docxBuffer);
+
     } catch (error) {
+      console.error('Ошибка в эндпоинте generate-doc:', error);
       res.status(500).json({ message: `Не удалось сгенерировать документ: ${error.message}` });
     }
   }
