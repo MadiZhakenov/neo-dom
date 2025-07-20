@@ -54,4 +54,8 @@ export class UsersService {
     user.last_generation_date = null;
     return this.usersRepository.save(user);
   }
+
+  async findOneById(id: number): Promise<User | null> {
+    return this.usersRepository.findOneBy({ id });
+  }
 }

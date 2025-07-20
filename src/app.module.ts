@@ -10,6 +10,10 @@ import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 
 import { DataImportModule } from './data-import/data-import.module';
+import { ChatModule } from './chat/chat.module';
+import { DocumentsModule } from './documents/documents.module';
+
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -36,6 +40,8 @@ import { DataImportModule } from './data-import/data-import.module';
     UsersModule,
     AuthModule,
     DataImportModule,
+    DocumentsModule, 
+    ChatModule,
   ],
   controllers: [AppController],
   providers: [AppService],

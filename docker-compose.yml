@@ -2,6 +2,7 @@ version: '3.8'
 
 services:
   postgres_db:
+
     image: postgres:14-alpine
     container_name: neo_osi_postgres
     restart: always
@@ -13,6 +14,17 @@ services:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+
+    libreoffice:
+    image: lscr.io/linuxserver/libreoffice:latest
+    container_name: neo_osi_libreoffice
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+    ports:
+      - "3001:3000"
+    restart: unless-stopped
 
 volumes:
   postgres_data:
