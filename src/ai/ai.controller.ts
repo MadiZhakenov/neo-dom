@@ -52,7 +52,7 @@ export class AiController {
       }
     }
 
-    const response = await this.aiService.getChatResponse(generateDto.prompt, userId);
+    const response = await this.aiService.getAiResponse(generateDto.prompt, userId);
     await this.usersService.incrementGenerationCount(user.id);
 
     if (response.type === 'start_generation') {
