@@ -1,6 +1,11 @@
 // src/users/entities/user.entity.ts
 import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
 
+export enum UserChatState {
+  IDLE = 'idle',
+  WAITING_FOR_DATA = 'waiting_for_data',
+}
+
 @Entity('users')
 export class User {
   @PrimaryGeneratedColumn()
@@ -29,4 +34,17 @@ export class User {
 
   @Column({ default: 'resident' })
   role: 'resident' | 'admin' | 'accountant';
+
+  @Column({
+    type: 'enum',
+    enum: UserChatState,
+    default: UserChatState.IDLE,
+  })
+  chat_state: UserChatState;
+
+  @Column({ type: 'varchar', nullable: true })
+  pending_template_name: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  pending_request_id: string | null;
 }

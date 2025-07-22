@@ -1,4 +1,5 @@
-// src/documents/docx.service.ts
+// src/documents/docx/docx.service.ts
+
 import { Injectable } from '@nestjs/common';
 import * as PizZip from 'pizzip';
 import * as Docxtemplater from 'docxtemplater';
@@ -19,11 +20,20 @@ export class DocxService {
       );
       const content = fs.readFileSync(templatePath, 'binary');
       const zip = new PizZip(content);
+
+      const nullGetter = (part: any) => {
+        const value = data[part.value];
+        return (value === null || value === undefined) ? "" : value;
+      };
+
       const doc = new Docxtemplater(zip, {
         paragraphLoop: true,
         linebreaks: true,
+        nullGetter: nullGetter,
       });
+
       doc.render(data);
+      
       const buf = doc.getZip().generate({
         type: 'nodebuffer',
         compression: 'DEFLATE',
