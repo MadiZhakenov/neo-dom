@@ -27,81 +27,75 @@ export class AiController {
   ) {}
 
   @UseGuards(JwtAuthGuard)
-  @Post('chat')
-  async chatWithAssistant(
+@Post('chat')
+async chatWithAssistant(
     @Request() req,
     @Body() generateDto: GenerateDocumentDto,
     @Res() res: Response,
-  ) {
+) {
     const userId = req.user.userId;
     const user = await this.usersService.findOneById(userId);
     if (!user) { throw new NotFoundException('Пользователь не найден.'); }
 
-    
+    // --- БЛОК ЛОГИКИ ТАРИФА (остается без изменений) ---
     if (user.tariff === 'Базовый') {
-      const now = new Date();
-      const lastGen = user.last_generation_date;
-      if (!lastGen || lastGen.getMonth() !== now.getMonth() || lastGen.getFullYear() !== now.getFullYear()) {
-        await this.usersService.resetGenerationCount(user.id);
-        user.generation_count = 0;
-      }
-      if (user.generation_count >= 100) {
-        throw new ForbiddenException('Превышен лимит сообщений для Базового тарифа.');
-      }
+        const now = new Date();
+        const lastGen = user.last_generation_date;
+        if (!lastGen || lastGen.getMonth() !== now.getMonth() || lastGen.getFullYear() !== now.getFullYear()) {
+            await this.usersService.resetGenerationCount(user.id);
+            user.generation_count = 0;
+        }
+        if (user.generation_count >= 100) {
+            throw new ForbiddenException('Превышен лимит сообщений для Базового тарифа.');
+        }
     }
     await this.usersService.incrementGenerationCount(user.id);
-    
-    if (generateDto.prompt.toLowerCase().includes('отмена') || 
-      generateDto.prompt.toLowerCase().includes('cancel')) {
-      await this.resetToChatMode(userId);
-      return res.status(200).json({ 
-        aiResponse: 'Режим заполнения документа отменен. Чем еще могу помочь?' 
-      });
-    }
-    
-    if (user.chat_state === UserChatState.WAITING_FOR_DATA && 
-      !this.isDocumentDataRequest(generateDto.prompt)) {
-      await this.resetToChatMode(userId);
-      const response = await this.aiService.getAiResponse(generateDto.prompt, userId);
-      return res.status(200).json({ aiResponse: response.content });
+    // --- КОНЕЦ БЛОКА ЛОГИКИ ТАРИФА ---
+
+    // УЛУЧШЕННАЯ ЛОГИКА ОБРАБОТКИ СОСТОЯНИЙ
+    // Проверяем, не хочет ли пользователь отменить действие, ВНЕ зависимости от текущего состояния
+    if (this.isCancellationRequest(generateDto.prompt)) {
+        await this.resetToChatMode(userId);
+        return res.status(200).json({
+            aiResponse: 'Режим заполнения документа отменен. Чем еще могу помочь?'
+        });
     }
 
+    // Если мы в режиме сбора данных
     if (user.chat_state === UserChatState.WAITING_FOR_DATA) {
-      return this.handleDocumentGeneration(user, generateDto, res);
+        // ... то передаем управление специальному обработчику
+        return this.handleDocumentGeneration(user, generateDto, res);
     }
 
+    // Стандартный флоу: определяем намерение и отвечаем
     const response = await this.aiService.getAiResponse(generateDto.prompt, userId);
-    
+
     if (response.type === 'start_generation') {
-      const templateName = response.content;
-      const fieldsToFill = await this.aiService.getFieldsForTemplate(templateName);
-      const formattedQuestions = await this.aiService.formatQuestionsForUser(fieldsToFill, templateName);
-      
-      const requestId = crypto.randomBytes(16).toString('hex');
-      await this.usersService.setChatState(
-        userId,
-        UserChatState.WAITING_FOR_DATA,
-        templateName,
-      );
-  
-      return res.status(200).json({
-        aiResponse: {
-          action: 'collect_data',
-          requestId: requestId,
-          templateName: templateName,
-          questions: formattedQuestions,
-          instructions: 'Пожалуйста, отправьте ВСЕ запрошенные данные ОДНИМ сообщением в следующем формате:\n\n' +
-            'Адрес: [ваш адрес]\n' +
-            'Передающая сторона: [ФИО, должность, основание]\n' +
-            'Принимающая сторона: [ФИО, должность, основание]\n' +
-            'Документы: [список документов с описанием]\n' +
-            'Дата подписания: [число, месяц, год]'
-        }
-      });
+        const templateName = response.content;
+        const fieldsToFill = await this.aiService.getFieldsForTemplate(templateName);
+        const formattedQuestions = await this.aiService.formatQuestionsForUser(fieldsToFill, templateName);
+        const requestId = crypto.randomBytes(16).toString('hex');
+
+        await this.usersService.setChatState(
+            userId,
+            UserChatState.WAITING_FOR_DATA,
+            templateName,
+            requestId,
+        );
+
+        return res.status(200).json({
+            aiResponse: {
+                action: 'collect_data',
+                requestId: requestId,
+                templateName: templateName,
+                questions: formattedQuestions,
+                instructions: `Пожалуйста, предоставьте данные для документа. Если хотите отменить, напишите "Отмена".`
+            }
+        });
     }
-  
+
     return res.status(200).json({ aiResponse: response.content });
-  }
+}
   
   private isDocumentDataRequest(prompt: string): boolean {
     const documentKeywords = [
@@ -163,4 +157,8 @@ export class AiController {
       null
     );
   }
+  private isCancellationRequest(prompt: string): boolean {
+    const lowerCasePrompt = prompt.toLowerCase();
+    return lowerCasePrompt.includes('отмена') || lowerCasePrompt.includes('cancel');
+}
 }

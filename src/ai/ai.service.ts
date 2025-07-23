@@ -162,63 +162,68 @@ export class AiService implements OnModuleInit {
 
   async getAiResponse(prompt: string, userId: number): Promise<{ type: 'chat' | 'start_generation'; content: any }> {
     try {
-      this.currentLanguage = this.detectLanguage(prompt);
-      const history = await this.chatHistoryService.getHistory(userId);
+        this.currentLanguage = this.detectLanguage(prompt);
+        const history = await this.chatHistoryService.getHistory(userId);
 
-      console.log('[AI Service] Все шаблоны:', this._templateNames);
-        
-      const intentDetectionPrompt = `
-        Определи намерение пользователя. 
-        Если он просит сгенерировать документ, найди наиболее подходящее название из списка и ответь ТОЛЬКО JSON: {"intent": "start_generation", "templateName": "точное_имя_файла.docx"}.
-        Если это просто вопрос, ответь ТОЛЬКО JSON: {"intent": "chat_response"}.
+        // Улучшенный промпт для определения намерения
+        const intentDetectionPrompt = `
+Твоя задача - определить намерение пользователя. Варианты намерений:
+1.  "start_generation": Пользователь явно хочет создать, сгенерировать, оформить или заполнить какой-то документ. Ключевые слова: "создай", "сделай", "оформи", "заполни", "сгенерируй", "акт", "форма", "отчет" и т.д.
+2.  "chat_response": Пользователь задает вопрос, просит консультацию, или его запрос не связан с генерацией документа.
 
-        Список доступных шаблонов (и их имена файлов для ответа):
-        ${this._templateNames.map(t => `- "${t.humanName}" (файл: ${t.fileName})`).join('\n')}
-            
-        Запрос пользователя: "${prompt}"
-      `;
+Проанализируй запрос пользователя и список доступных шаблонов.
+- Если намерение "start_generation", найди самый подходящий шаблон из списка и верни ТОЛЬКО JSON:
+  {"intent": "start_generation", "templateName": "точное_имя_файла.docx"}
+- Если намерение "chat_response", верни ТОЛЬКО JSON:
+  {"intent": "chat_response"}
 
-      const rawResponse = await this.generateWithRetry(intentDetectionPrompt);
-      console.log('[AI Service] Сырой ответ на определение намерения:', rawResponse);
+Список доступных шаблонов (и их имена файлов для ответа):
+${this._templateNames.map(t => `- "${t.humanName}" (файл: ${t.fileName})`).join('\n')}
 
-      const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-          console.warn('[AI Service] Не удалось распознать намерение, перехожу к RAG-ответу.');
-          const answer = await this.getFactualAnswer(prompt, history as Content[]);
-          await this.chatHistoryService.addMessageToHistory(userId, prompt, answer);
-          return { type: 'chat', content: answer };
-      }
+Запрос пользователя: "${prompt}"
+`;
 
-      const parsed = JSON.parse(jsonMatch[0]);
-      console.log('[AI Service] Распарсенное намерение:', parsed);
+        const rawResponse = await this.generateWithRetry(intentDetectionPrompt);
+        // Улучшенная, более надежная очистка ответа от мусора
+        const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
 
-      if (parsed.intent === 'start_generation' && parsed.templateName) {
-        const foundTemplate = this._templateNames.find(t => t.fileName === parsed.templateName.toLowerCase());
-            
-        if (foundTemplate) {
-          const confirmationMessage = this.currentLanguage === 'kz' ?
-            `Әрине, "${foundTemplate.humanName}" құжатын дайындауға көмектесемін.` :
-            `Конечно, я помогу вам подготовить документ: "${foundTemplate.humanName}".`;
-
-          await this.chatHistoryService.addMessageToHistory(userId, prompt, confirmationMessage);
-          return { type: 'start_generation', content: foundTemplate.fileName };
+        if (!jsonMatch) {
+            console.warn('[AI Service] Не удалось распознать намерение в формате JSON, перехожу к RAG-ответу как к запасному варианту.');
+            const answer = await this.getFactualAnswer(prompt, history as Content[]);
+            await this.chatHistoryService.addMessageToHistory(userId, prompt, answer);
+            return { type: 'chat', content: answer };
         }
-      }
-      
-      const answer = await this.getFactualAnswer(prompt, history as Content[]);
-      await this.chatHistoryService.addMessageToHistory(userId, prompt, answer);
-      return { type: 'chat', content: answer };
+
+        const parsed = JSON.parse(jsonMatch[0]);
+        console.log('[AI Service] Распарсенное намерение:', parsed);
+
+        if (parsed.intent === 'start_generation' && parsed.templateName) {
+            const foundTemplate = this._templateNames.find(t => t.fileName === parsed.templateName.toLowerCase());
+
+            if (foundTemplate) {
+                const confirmationMessage = this.currentLanguage === 'kz'
+                    ? `Әрине, "${foundTemplate.humanName}" құжатын дайындауға көмектесемін.`
+                    : `Конечно, я помогу вам подготовить документ: "${foundTemplate.humanName}".`;
+
+                await this.chatHistoryService.addMessageToHistory(userId, prompt, confirmationMessage);
+                return { type: 'start_generation', content: foundTemplate.fileName };
+            }
+        }
+
+        // Если намерение 'chat_response' или шаблон не найден, то отвечаем как консультант
+        const answer = await this.getFactualAnswer(prompt, history as Content[]);
+        await this.chatHistoryService.addMessageToHistory(userId, prompt, answer);
+        return { type: 'chat', content: answer };
 
     } catch (error) {
-      console.error('[AI Service] Ошибка в getAiResponse:', error);
-      const errorMessage = this.currentLanguage === 'kz' ?
-        'Кешіріңіз, сұранысыңызды өңдеу кезінде ішкі қате пайда болды.' :
-        'Извините, произошла внутренняя ошибка при обработке вашего запроса.';
-      
-      await this.chatHistoryService.addMessageToHistory(userId, prompt, errorMessage);
-      return { type: 'chat', content: errorMessage };
+        console.error('[AI Service] Ошибка в getAiResponse:', error);
+        const errorMessage = this.currentLanguage === 'kz'
+            ? 'Кешіріңіз, сұранысыңызды өңдеу кезінде ішкі қате пайда болды.'
+            : 'Извините, произошла внутренняя ошибка при обработке вашего запроса.';
+        await this.chatHistoryService.addMessageToHistory(userId, prompt, errorMessage); // Логируем ошибку в историю
+        return { type: 'chat', content: errorMessage };
     }
-  }
+}
 
   async getFieldsForTemplate(templateName: string): Promise<any> {
     const normalizedTemplateName = templateName.toLowerCase();
@@ -296,54 +301,64 @@ export class AiService implements OnModuleInit {
   ): Promise<{
     data: any;
     isComplete: boolean;
-    missingFields?: {tag: string, question: string}[];
+    missingFields?: { tag: string, question: string }[];
   }> {
     const normalizedTemplateName = templateName.toLowerCase();
     const templateInfo = TEMPLATES_REGISTRY[normalizedTemplateName];
-    
     if (!templateInfo || !templateInfo.tags_in_template) {
-      throw new Error(`Шаблон "${templateName}" не найден.`);
+        throw new Error(`Шаблон "${templateName}" не найден или не настроен.`);
     }
-  
-    // Сначала получаем вопросы для шаблона
+
     const fields = await this.getFieldsForTemplate(templateName);
     const fieldMap = new Map(fields.map(f => [f.tag, f.question]));
-  
     const requiredFields = templateInfo.tags_in_template.map(tag => ({
-      tag,
-      question: fieldMap.get(tag) || `Укажите значение для ${tag}`
+        tag,
+        question: fieldMap.get(tag) || `Укажите значение для ${tag}`
     }));
-  
+
+    // ИСПРАВЛЕННАЯ ВЕРСИЯ ПРОМПТА
     const prompt = `
-      Проанализируй следующий текст и извлеки данные для заполнения шаблона документа.
-      Требуемые поля: ${JSON.stringify(requiredFields, null, 2)}
-      
-      Если каких-то данных не хватает, верни JSON с isComplete: false и списком missingFields 
-      (в том же формате массив объектов с tag и question).
-      Если все данные есть - верни isComplete: true и извлеченные данные в поле data.
-      
-      Формат ответа:
-      {
-        "isComplete": boolean,
-        "missingFields": [{tag: string, question: string}] (если isComplete=false),
-        "data": object (если isComplete=true)
-      }
-      
-      Текст для анализа:
-      "${userAnswersPrompt}"
-    `;
-  
+Твоя задача - проанализировать текст пользователя и извлечь из него данные для заполнения шаблона документа.
+
+ВАЖНОЕ ПРАВИЛО ДЛЯ СПИСКОВ И ТАБЛИЦ:
+Некоторые поля представляют собой списки (массивы), например, список документов или членов комиссии. Для таких полей ты ДОЛЖЕН создать массив JSON-объектов.
+Например, если в шаблоне есть цикл для поля "documents" с тегами "doc_name" и "doc_quantity", и пользователь пишет:
+"Нужны такие документы: 1. Паспорт на 5 листах, 2. Акт осмотра на 2 листах",
+то в поле "data" для ключа "documents" должен быть массив:
+"documents": [
+  { "doc_name": "Паспорт", "doc_quantity": "5 листах" },
+  { "doc_name": "Акт осмотра", "doc_quantity": "2 листах" }
+]
+
+Проанализируй следующий текст и извлеки данные.
+Требуемые поля и их теги: ${JSON.stringify(requiredFields, null, 2)}
+
+Текст для анализа от пользователя:
+"${userAnswersPrompt}"
+
+Верни ответ СТРОГО в формате JSON. Не добавляй никаких пояснений или \`\`\`json.
+
+Формат ответа:
+{
+  "isComplete": /* boolean: true если все данные найдены, иначе false */,
+  "missingFields": /* массив объектов [{tag: string, question: string}] или null. Заполняется ТОЛЬКО если isComplete=false */,
+  "data": /* объект с извлеченными данными. Ключи объекта - это теги полей. Этот объект должен быть здесь ВСЕГДА, даже если он неполный. */
+}
+`;
+
     try {
-      const rawResponse = await this.generateWithRetry(prompt);
-      const cleanResponse = rawResponse.replace(/```json/g, '').replace(/```/g, '').trim();
-      return JSON.parse(cleanResponse);
+        const rawResponse = await this.generateWithRetry(prompt);
+        // Убираем возможные "обертки" ответа модели
+        const cleanResponse = rawResponse.replace(/^```json/g, '').replace(/```$/g, '').trim();
+        return JSON.parse(cleanResponse);
     } catch (error) {
-      console.error('Ошибка извлечения данных:', error);
-      return {
-        isComplete: false,
-        missingFields: requiredFields,
-        data: null
-      };
+        console.error('Ошибка извлечения данных:', error);
+        // Возвращаем корректную структуру в случае ошибки
+        return {
+            isComplete: false,
+            missingFields: requiredFields,
+            data: {} // Возвращаем пустой объект, а не null
+        };
     }
   }
   

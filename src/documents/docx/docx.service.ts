@@ -8,40 +8,41 @@ import * as path from 'path';
 
 @Injectable()
 export class DocxService {
+    generateDocx(templateName: string, data: any): Buffer {
+        try {
+            const templatePath = path.join(
+                process.cwd(),
+                'knowledge_base',
+                'templates',
+                'docx',
+                templateName,
+            );
 
-  generateDocx(templateName: string, data: any): Buffer {
-    try {
-      const templatePath = path.join(
-        process.cwd(),
-        'knowledge_base',
-        'templates',
-        'docx',
-        templateName,
-      );
-      const content = fs.readFileSync(templatePath, 'binary');
-      const zip = new PizZip(content);
+            const content = fs.readFileSync(templatePath, 'binary');
+            const zip = new PizZip(content);
 
-      const nullGetter = (part: any) => {
-        const value = data[part.value];
-        return (value === null || value === undefined) ? "" : value;
-      };
+            // УДАЛЯЕМ СТАРЫЙ nullGetter И ИНИЦИАЛИЗИРУЕМ DOCXTEMPLATER ВОТ ТАК:
+            const doc = new Docxtemplater(zip, {
+                paragraphLoop: true, // Эта опция как раз отвечает за циклы в таблицах
+                linebreaks: true,
+                // Мы убрали отсюда кастомный nullGetter. Теперь библиотека будет
+                // корректно работать с вложенными данными в циклах.
+            });
 
-      const doc = new Docxtemplater(zip, {
-        paragraphLoop: true,
-        linebreaks: true,
-        nullGetter: nullGetter,
-      });
+            // Этот метод теперь будет работать правильно с таблицами
+            doc.render(data);
 
-      doc.render(data);
-      
-      const buf = doc.getZip().generate({
-        type: 'nodebuffer',
-        compression: 'DEFLATE',
-      });
-      return buf;
-    } catch (error) {
-      console.error('Ошибка при генерации DOCX:', error);
-      throw new Error(`Не удалось сгенерировать документ из шаблона ${templateName}`);
+            const buf = doc.getZip().generate({
+                type: 'nodebuffer',
+                compression: 'DEFLATE',
+            });
+
+            return buf;
+        } catch (error) {
+            // Если в данных не хватает какого-то тега, ошибка возникнет здесь.
+            // Это хорошо для отладки, так как сразу видно, что AI не извлек все данные.
+            console.error('Ошибка при генерации DOCX:', error);
+            throw new Error(`Не удалось сгенерировать документ из шаблона ${templateName}. Проверьте, что все данные были предоставлены. Ошибка: ${error.message}`);
+        }
     }
-  }
 }
