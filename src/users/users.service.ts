@@ -71,5 +71,10 @@ export class UsersService {
       pending_request_id: requestId,
     });
   }
+  async setLastGenerationDate(userId: number, date: Date): Promise<void> {
+    await this.usersRepository.update(userId, {
+        last_generation_date: date,
+    });
+  }
 
 }

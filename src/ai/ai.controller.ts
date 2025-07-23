@@ -37,23 +37,7 @@ export class AiController {
     const userId = req.user.userId;
     const user = await this.usersService.findOneById(userId);
     if (!user) { throw new NotFoundException('Пользователь не найден.'); }
-  
-    // --- БЛОК ЛОГИКИ ТАРИФА ---
-    if (user.tariff === 'Базовый') {
-      const now = new Date();
-      const lastGen = user.last_generation_date;
-      if (!lastGen || lastGen.getMonth() !== now.getMonth() || lastGen.getFullYear() !== now.getFullYear()) {
-        await this.usersService.resetGenerationCount(user.id);
-      }
-      if (user.generation_count >= 100) {
-        throw new ForbiddenException('Превышен лимит сообщений для Базового тарифа.');
-      }
-    }
-    await this.usersService.incrementGenerationCount(user.id);
-    // --- КОНЕЦ БЛОКА ---
-  
-  
-    // ===== НОВАЯ УМНАЯ ЛОГИКА УПРАВЛЕНИЯ ДИАЛОГОМ =====
+
   
     if (user.chat_state === UserChatState.WAITING_FOR_DATA) {
       if (!user.pending_template_name) {
@@ -145,47 +129,77 @@ export class AiController {
   }
 
   
-  private async handleDocumentGeneration(
-    user: User,
-    generateDto: GenerateDocumentDto,
-    res: Response
-  ) {
+  private async handleDocumentGeneration(user: User, generateDto: GenerateDocumentDto, res: Response) {
     try {
-      if (!user.pending_template_name) {
-        throw new Error('Не указан шаблон документа');
+      if (user.tariff === 'Базовый') {
+        const now = new Date();
+        const lastGen = user.last_generation_date;
+
+        if (lastGen && lastGen.getMonth() === now.getMonth() && lastGen.getFullYear() === now.getFullYear()) {
+          const lang = this.aiService.detectLanguage(generateDto.prompt);
+          const errorMessage = lang === 'kz'
+            ? 'Сіз осы айдағы құжат жасау лимитіңізді пайдаланып қойдыңыз. "Премиум" тарифіне өтіп, шектеусіз мүмкіндіктерге ие болыңыз.'
+            : 'Вы уже использовали свой лимит на генерацию документов в этом месяце. Перейдите на тариф "Премиум" для неограниченных возможностей.';
+          throw new ForbiddenException(errorMessage);
+        }
       }
-  
+
       const { data, isComplete, missingFields = [] } = await this.aiService.extractDataForDocx(
         generateDto.prompt,
-        user.pending_template_name
+        user.pending_template_name!,
       );
-  
+
       if (!isComplete) {
+        const templateLanguage = TEMPLATES_REGISTRY[user.pending_template_name!]?.language || 'ru';
         const missingQuestions = missingFields.map(f => f.question).join('\n- ');
-        
+        const responseMessage = templateLanguage === 'kz'
+          ? `Құжатты рәсімдеуді аяқтау үшін келесі ақпаратты беріңіз:\n\n- ${missingQuestions}\n\nБарлық деректерді КӨРСЕТІЛГЕН форматта БІР хабарламамен жіберіңіз.`
+          : `Для завершения оформления документа, пожалуйста, предоставьте следующую информацию:\n\n- ${missingQuestions}\n\nОтправьте все данные ОДНИМ сообщением в указанном формате.`;
         return res.status(200).json({
-          aiResponse: `Для завершения оформления документа, пожалуйста, предоставьте следующую информацию:\n\n- ${missingQuestions}\n\nОтправьте все данные ОДНИМ сообщением в указанном формате.`,
+          aiResponse: responseMessage,
           action: 'collect_data',
-          templateName: user.pending_template_name
+          templateName: user.pending_template_name,
         });
       }
-  
-      const docxBuffer = this.docxService.generateDocx(user.pending_template_name, data);
-      await this.usersService.setChatState(user.id, UserChatState.IDLE, null, null);
-  
-      const encodedFileName = encodeURIComponent(user.pending_template_name);
+
+      // ================================================================
+      // === ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ: ДОБАВЛЯЕМ НУМЕРАЦИЮ ПРОГРАММНО ===
+      // ================================================================
+      // Проверяем, есть ли в данных массив 'docs' (или другой ключ для вашей таблицы)
+      if (data && Array.isArray(data.docs)) {
+        // Проходим по массиву и добавляем поле 'index'
+        data.docs.forEach((doc, i) => {
+          doc.index = i + 1; // i начинается с 0, поэтому добавляем 1
+        });
+      }
+      // ================================================================
+
+      // Генерируем документ уже с модифицированными данными
+      const docxBuffer = this.docxService.generateDocx(user.pending_template_name!, data);
+
+      if (user.tariff === 'Базовый') {
+          await this.usersService.setLastGenerationDate(user.id, new Date());
+      }
+
+      await this.resetToChatMode(user.id);
+      
+      const encodedFileName = encodeURIComponent(user.pending_template_name!);
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFileName}`);
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFileName}.docx`);
       return res.send(docxBuffer);
-  
+
     } catch (error) {
+      if (error instanceof ForbiddenException) {
+          return res.status(403).json({ aiResponse: error.message });
+      }
       console.error('Ошибка генерации документа:', error);
-      await this.usersService.setChatState(user.id, UserChatState.IDLE, null, null);
-      return res.status(500).json({ 
-        aiResponse: 'Произошла ошибка при генерации документа. Пожалуйста, попробуйте снова.' 
+      await this.resetToChatMode(user.id);
+      return res.status(500).json({
+        aiResponse: 'Произошла ошибка при генерации документа. Пожалуйста, попробуйте снова.',
       });
     }
   }
+
   private async resetToChatMode(userId: number) {
     await this.usersService.setChatState(
       userId,

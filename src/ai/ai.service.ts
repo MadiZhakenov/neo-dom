@@ -99,7 +99,7 @@ export class AiService implements OnModuleInit {
     }
   }
 
-  private detectLanguage(text: string): 'ru' | 'kz' {
+  public detectLanguage(text: string): 'ru' | 'kz' {
       // Проверка на наличие специфических казахских символов
       const kzSpecificChars = /[әғқңөұүіһӘҒҚҢӨҰҮІҺ]/;
       if (kzSpecificChars.test(text)) {
@@ -237,7 +237,7 @@ ${this._templateNames.map(t => `- "${t.humanName}" (файл: ${t.fileName})`).j
 async getFieldsForTemplate(templateName: string): Promise<any> {
   const normalizedTemplateName = templateName.toLowerCase();
   const templateInfo = TEMPLATES_REGISTRY[normalizedTemplateName];
-  if (!templateInfo || !templateInfo.tags_in_template || !templateInfo.language) { // Проверяем и наличие языка
+  if (!templateInfo || !templateInfo.tags_in_template || !templateInfo.language) {
       throw new Error(`Ошибка конфигурации: Шаблон "${templateName}" не настроен (отсутствуют теги или язык).`);
   }
 
@@ -249,20 +249,21 @@ async getFieldsForTemplate(templateName: string): Promise<any> {
       const pdfBuffer = fs.readFileSync(pdfPreviewPath);
       const base64Pdf = pdfBuffer.toString('base64');
 
-      // ГЛАВНОЕ ИЗМЕНЕНИЕ: мы явно указываем AI, на каком языке должны быть вопросы
+      // --- НОВЫЙ, БОЛЕЕ ЖЕСТКИЙ ПРОМПТ ---
       const prompt = `
-        Проанализируй этот PDF-документ. Он является шаблоном.
-        Твоя задача - составить список вопросов для пользователя, чтобы собрать все необходимые данные для заполнения этого документа.
+Твоя главная задача: Сгенерировать список вопросов для пользователя на основе PDF-документа.
 
-        Верни ответ СТРОГО в виде JSON-массива объектов, где каждый объект имеет два поля: "tag" и "question".
+САМОЕ ГЛАВНОЕ ПРАВИЛО: Язык для ВСЕХ генерируемых вопросов ДОЛЖЕН БЫТЬ "${templateInfo.language}". Не используй никакой другой язык, кроме указанного. Это самое важное требование.
 
-        ВАЖНОЕ ПРАВИЛО ЯЗЫКА: Вопросы должны быть на языке "${templateInfo.language}".
+Твоя цель - помочь пользователю заполнить шаблон. Проанализируй PDF и для каждого поля, которое нужно заполнить, сформулируй вежливый и понятный вопрос.
 
-        Особое правило для тегов-массивов: Если в списке тегов есть тег, обозначающий массив (например, "documents"), ты ДОЛЖЕН задать ОДИН, ПОДРОБНЫЙ вопрос для этого родительского тега.
-        НЕ ЗАДАВАЙ ОТДЕЛЬНЫЕ ВОПРОСЫ для под-полей (например, "doc_index", "doc_name").
+Верни ответ СТРОГО в виде JSON-массива объектов, где каждый объект имеет два поля: "tag" и "question".
 
-        Список всех тегов, которые ты должен учесть:
-        ${templateInfo.tags_in_template.map(tag => `- ${tag}`).join('\n')}
+Особое правило для тегов-массивов: Если в списке тегов есть тег, обозначающий массив (например, "documents"), ты ДОЛЖЕН задать ОДИН, ПОДРОБНЫЙ вопрос для этого родительского тега.
+НЕ ЗАДАВАЙ ОТДЕЛЬНЫЕ ВОПРОСЫ для под-полей (например, "doc_index", "doc_name").
+
+Список всех тегов, которые ты должен учесть:
+${templateInfo.tags_in_template.map(tag => `- ${tag}`).join('\n')}
       `;
 
       const result = await this.generateWithRetry([
@@ -318,55 +319,49 @@ async formatQuestionsForUser(fields: any[], templateName: string): Promise<strin
         throw new Error(`Шаблон "${templateName}" не найден или не настроен.`);
     }
 
-    const fields = await this.getFieldsForTemplate(templateName);
-    const fieldMap = new Map(fields.map(f => [f.tag, f.question]));
-    const requiredFields = templateInfo.tags_in_template.map(tag => ({
-        tag,
-        question: fieldMap.get(tag) || `Укажите значение для ${tag}`
-    }));
-
-    // ИСПРАВЛЕННАЯ ВЕРСИЯ ПРОМПТА
+    // ИЗМЕНЕНИЕ №1: Вместо того чтобы пытаться найти вопросы, мы просто берем список тегов.
+    // AI для извлечения данных не нужны вопросы, они нужны только пользователю.
+    const requiredTags = templateInfo.tags_in_template;
     const prompt = `
-Твоя задача - проанализировать текст пользователя и извлечь из него данные для заполнения шаблона документа.
-
-ВАЖНОЕ ПРАВИЛО ДЛЯ СПИСКОВ И ТАБЛИЦ:
-Некоторые поля представляют собой списки (массивы), например, список документов или членов комиссии. Для таких полей ты ДОЛЖЕН создать массив JSON-объектов.
-Например, если в шаблоне есть цикл для поля "documents" с тегами "doc_name" и "doc_quantity", и пользователь пишет:
-"Нужны такие документы: 1. Паспорт на 5 листах, 2. Акт осмотра на 2 листах",
-то в поле "data" для ключа "documents" должен быть массив:
-"documents": [
-  { "doc_name": "Паспорт", "doc_quantity": "5 листах" },
-  { "doc_name": "Акт осмотра", "doc_quantity": "2 листах" }
-]
-
-Проанализируй следующий текст и извлеки данные.
-Требуемые поля и их теги: ${JSON.stringify(requiredFields, null, 2)}
-
-Текст для анализа от пользователя:
-"${userAnswersPrompt}"
-
-Верни ответ СТРОГО в формате JSON. Не добавляй никаких пояснений или \`\`\`json.
-
-Формат ответа:
-{
-  "isComplete": /* boolean: true если все данные найдены, иначе false */,
-  "missingFields": /* массив объектов [{tag: string, question: string}] или null. Заполняется ТОЛЬКО если isComplete=false */,
-  "data": /* объект с извлеченными данными. Ключи объекта - это теги полей. Этот объект должен быть здесь ВСЕГДА, даже если он неполный. */
-}
-`;
-
+    Твоя роль - высокоточный робот по извлечению структурированных данных (Data Extractor).
+    На вход ты получаешь 'Текст для анализа' от пользователя и 'Список требуемых тегов'.
+    'Текст для анализа' СОДЕРЖИТ ответы на все вопросы. Твоя единственная задача — внимательно прочитать этот текст, найти в нем значения для КАЖДОГО тега из списка и вернуть ПОЛНЫЙ JSON.
+    КАТЕГОРИЧЕСКИ ЗАПРЕЩАЕТСЯ отвечать, что данных не хватает, если они присутствуют в тексте. Ты должен найти их.
+    Правило для списков/таблиц: Если тег обозначает массив (например, 'documents'), создай массив JSON-объектов.
+    Список требуемых тегов для извлечения:
+    ${JSON.stringify(requiredTags, null, 2)}
+    Текст для анализа:
+    "${userAnswersPrompt}"
+    Верни ответ СТРОГО в формате JSON. Без пояснений и \`\`\`json.
+    Формат ответа:
+    {
+      "isComplete": <boolean>,
+      "missingFields": <массив объектов [{tag: string, question: string}] ТОЛЬКО если isComplete=false>,
+      "data": <объект с извлеченными данными. Этот объект должен быть здесь ВСЕГДА.>
+    }
+  `;
     try {
         const rawResponse = await this.generateWithRetry(prompt);
-        // Убираем возможные "обертки" ответа модели
         const cleanResponse = rawResponse.replace(/^```json/g, '').replace(/```$/g, '').trim();
-        return JSON.parse(cleanResponse);
+        const parsedResponse = JSON.parse(cleanResponse);
+
+        // Дополнительная проверка на случай, если AI вернул isComplete: false, но не вернул missingFields
+        if (parsedResponse.isComplete === false && !parsedResponse.missingFields) {
+            console.warn("AI indicated incomplete data but didn't provide missing fields. Falling back to asking for all fields.");
+            // В этом крайнем случае мы должны заново сгенерировать вопросы, чтобы не оставить пользователя в тупике.
+            const fields = await this.getFieldsForTemplate(templateName);
+            parsedResponse.missingFields = fields;
+        }
+
+        return parsedResponse;
+
     } catch (error) {
         console.error('Ошибка извлечения данных:', error);
-        // Возвращаем корректную структуру в случае ошибки
+        const fields = await this.getFieldsForTemplate(templateName);
         return {
             isComplete: false,
-            missingFields: requiredFields,
-            data: {} // Возвращаем пустой объект, а не null
+            missingFields: fields,
+            data: {}
         };
     }
   }
