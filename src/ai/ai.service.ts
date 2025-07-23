@@ -320,14 +320,27 @@ export class AiService implements OnModuleInit {
     `;
     try {
         const rawResponse = await this.generateWithRetry(prompt);
-        const cleanResponse = rawResponse.replace(/^```json/g, '').replace(/```$/g, '').trim();
-        const parsedResponse = JSON.parse(cleanResponse);
+
+        // --- ГЛАВНОЕ ИСПРАВЛЕНИЕ ---
+        // Используем регулярное выражение для поиска JSON-блока в ответе.
+        const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+
+        // Если JSON-блок не найден вообще, это критическая ошибка.
+        if (!jsonMatch) {
+          console.error("AI не вернул валидный JSON в ответе. Ответ модели:", rawResponse);
+          throw new Error("Не удалось извлечь данные из ответа AI.");
+        }
+
+        // Берем только совпавшую часть (чистый JSON) и парсим ее.
+        const parsedResponse = JSON.parse(jsonMatch[0]);
+        
         if (parsedResponse.isComplete === false && !parsedResponse.missingFields) {
             console.warn("AI указал на неполные данные, но не предоставил список недостающих полей. Повторно запрашиваем все поля.");
             const fields = await this.getFieldsForTemplate(templateName);
             parsedResponse.missingFields = fields;
         }
         return parsedResponse;
+
     } catch (error) {
         console.error('Критическая ошибка при извлечении данных:', error);
         const fields = await this.getFieldsForTemplate(templateName);
