@@ -1,4 +1,7 @@
-// src/auth/auth.module.ts
+/**
+ * @file src/auth/auth.module.ts
+ * @description Модуль аутентификации, настраивающий JWT стратегию.
+ */
 
 import { Module } from '@nestjs/common';
 import { AuthService } from './auth.service';
@@ -13,16 +16,17 @@ import { JwtStrategy } from './jwt.strategy';
   imports: [
     UsersModule,
     PassportModule,
+    // Асинхронная регистрация JWT модуля для чтения секрета из .env
     JwtModule.registerAsync({
       imports: [ConfigModule],
+      inject: [ConfigService],
       useFactory: async (configService: ConfigService) => ({
         secret: configService.get<string>('JWT_SECRET'),
-        signOptions: { expiresIn: '60m' },
+        signOptions: { expiresIn: '60m' }, // Токен действителен 1 час
       }),
-      inject: [ConfigService],
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy], // Регистрируем сервис и стратегию
 })
 export class AuthModule {}
