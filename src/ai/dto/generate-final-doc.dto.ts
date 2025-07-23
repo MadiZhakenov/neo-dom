@@ -1,12 +1,24 @@
-// src/ai/dto/generate-final-doc.dto.ts
-import { IsString, IsNotEmpty, IsObject } from 'class-validator';
+/**
+ * @file src/ai/dto/generate-final-doc.dto.ts
+ * @description DTO для запроса на финальную генерацию документа.
+ * Устарел и не используется в текущей логике, но может быть использован в будущем.
+ * @deprecated
+ */
+
+import { IsString, IsNotEmpty } from 'class-validator';
 
 export class GenerateFinalDocDto {
+  /**
+   * Имя файла шаблона.
+   */
   @IsString()
   @IsNotEmpty()
   templateName: string;
 
-  @IsString() 
+  /**
+   * Ответы пользователя на вопросы, собранные в одну строку.
+   */
+  @IsString()
   @IsNotEmpty()
-  userAnswersPrompt: string; 
+  userAnswersPrompt: string;
 }

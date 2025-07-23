@@ -1,4 +1,7 @@
-// src/users/users.module.ts
+/**
+ * @file src/users/users.module.ts
+ * @description Модуль для управления пользователями.
+ */
 
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -10,6 +13,6 @@ import { User } from './entities/user.entity';
   imports: [TypeOrmModule.forFeature([User])],
   controllers: [UsersController],
   providers: [UsersService],
-  exports: [UsersService],
+  exports: [UsersService], // Экспортируем сервис для использования в AuthModule и AiModule
 })
 export class UsersModule {}

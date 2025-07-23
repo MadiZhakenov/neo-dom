@@ -1,8 +1,17 @@
-// src/users/entities/user.entity.ts
+/**
+ * @file src/users/entities/user.entity.ts
+ * @description Сущность TypeORM, описывающая таблицу 'users' в базе данных.
+ */
+
 import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
 
+/**
+ * Перечисление возможных состояний чата для пользователя.
+ */
 export enum UserChatState {
+  /** Обычный режим чата. */
   IDLE = 'idle',
+  /** Режим сбора данных для генерации документа. */
   WAITING_FOR_DATA = 'waiting_for_data',
 }
 
@@ -21,7 +30,7 @@ export class User {
   tariff: string;
 
   @Column({ type: 'int', default: 0 })
-  generation_count: number;
+  generation_count: number; // Устарело, но оставлено для совместимости
 
   @Column({ type: 'timestamp', nullable: true, default: null })
   last_generation_date: Date | null;
@@ -35,11 +44,7 @@ export class User {
   @Column({ default: 'resident' })
   role: 'resident' | 'admin' | 'accountant';
 
-  @Column({
-    type: 'enum',
-    enum: UserChatState,
-    default: UserChatState.IDLE,
-  })
+  @Column({ type: 'enum', enum: UserChatState, default: UserChatState.IDLE })
   chat_state: UserChatState;
 
   @Column({ type: 'varchar', nullable: true })

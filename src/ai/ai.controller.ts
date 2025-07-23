@@ -1,3 +1,10 @@
+/**
+ * @file src/ai/ai.controller.ts
+ * @description Контроллер, отвечающий за обработку всех запросов к AI-ассистенту.
+ * Является точкой входа для /ai/chat. Управляет состоянием диалога,
+ * вызывает AI-сервис для получения ответов и генерации документов.
+ */
+
 import {
   Controller,
   Post,
@@ -14,19 +21,31 @@ import { UsersService } from '../users/users.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { GenerateDocumentDto } from './dto/generate-document.dto';
 import { DocxService } from '../documents/docx/docx.service';
-import { UserChatState } from '../users/entities/user.entity';
-import { User } from '../users/entities/user.entity';
+import { UserChatState, User } from '../users/entities/user.entity';
 import * as crypto from 'crypto';
 import { TEMPLATES_REGISTRY } from './templates.registry';
 
 @Controller('ai')
 export class AiController {
+  /**
+   * @param aiService Сервис для взаимодействия с моделями Google Gemini.
+   * @param usersService Сервис для работы с данными пользователей.
+   * @param docxService Сервис для генерации .docx файлов из шаблонов.
+   */
   constructor(
     private readonly aiService: AiService,
     private readonly usersService: UsersService,
     private readonly docxService: DocxService,
   ) {}
 
+  /**
+   * Основной метод для ведения диалога с AI.
+   * Обрабатывает все входящие сообщения, управляет состояниями
+   * и вызывает соответствующие методы для генерации ответа или документа.
+   * @param req - Запрос, содержащий данные аутентифицированного пользователя.
+   * @param generateDto - DTO с промптом пользователя.
+   * @param res - Объект ответа Express для отправки данных.
+   */
   @UseGuards(JwtAuthGuard)
   @Post('chat')
   async chatWithAssistant(
@@ -36,105 +55,115 @@ export class AiController {
   ) {
     const userId = req.user.userId;
     const user = await this.usersService.findOneById(userId);
-    if (!user) { throw new NotFoundException('Пользователь не найден.'); }
+    if (!user) {
+      throw new NotFoundException('Пользователь не найден.');
+    }
 
-  
+    // === ЛОГИКА УПРАВЛЕНИЯ ДИАЛОГОМ ===
+
+    // 1. Если пользователь находится в состоянии "ожидания данных" для документа.
     if (user.chat_state === UserChatState.WAITING_FOR_DATA) {
+      // Защита от непредвиденной ошибки состояния.
       if (!user.pending_template_name) {
         console.error(`Ошибка состояния: пользователь ${userId} в WAITING_FOR_DATA, но pending_template_name отсутствует.`);
         await this.resetToChatMode(userId);
         return res.status(500).json({ aiResponse: 'Произошла внутренняя ошибка состояния. Пожалуйста, попробуйте начать заново.' });
       }
-  
+
+      // Анализируем намерение пользователя: предоставляет ли он данные, хочет сменить документ или задает общий вопрос.
       const analysis = await this.aiService.analyzeInputDuringDataCollection(generateDto.prompt, user.pending_template_name);
-  
+
       switch (analysis.intent) {
+        // 1.1. Пользователь предоставляет данные -> передаем управление генератору документов.
         case 'provide_data':
           return this.handleDocumentGeneration(user, generateDto, res);
-  
+
+        // 1.2. Пользователь хочет сменить документ -> выполняем бесшовное переключение.
         case 'switch_document':
           if (!analysis.templateName) {
-            console.warn('AI определил смену документа, но не вернул имя шаблона.');
+            console.warn('AI определил смену документа, но не вернул имя шаблона. Сбрасываем в чат.');
             await this.resetToChatMode(userId);
             const response = await this.aiService.getAiResponse(generateDto.prompt, userId);
             return res.status(200).json({ aiResponse: response.content });
           }
-  
+
           const newTemplateName = analysis.templateName;
-          // Получаем язык нового шаблона
           const newTemplateLanguage = TEMPLATES_REGISTRY[newTemplateName]?.language || 'ru';
           const fields = await this.aiService.getFieldsForTemplate(newTemplateName);
           const questions = await this.aiService.formatQuestionsForUser(fields, newTemplateName);
           
+          // Обновляем состояние пользователя, меняя шаблон, но сохраняя ID запроса.
           await this.usersService.setChatState(userId, UserChatState.WAITING_FOR_DATA, newTemplateName, user.pending_request_id);
-  
+
+          // Отправляем пользователю новые вопросы и локализованные инструкции.
           return res.status(200).json({
             aiResponse: {
               action: 'collect_data',
               requestId: user.pending_request_id,
               templateName: newTemplateName,
               questions: `Отлично, переключаемся на другой документ.\n\n${questions}`,
-              // ИСПРАВЛЕНИЕ №1: Инструкция теперь зависит от языка
               instructions: newTemplateLanguage === 'kz'
                 ? 'Жаңа құжат үшін деректерді енгізіңіз. Бас тарту үшін "Болдырмау" деп жазыңыз.'
                 : 'Пожалуйста, предоставьте данные для нового документа. Если хотите отменить, напишите "Отмена".'
             }
           });
-  
+
+        // 1.3. Пользователь задал общий вопрос или хочет отменить действие.
         case 'general_query':
           await this.resetToChatMode(userId);
           const response = await this.aiService.getAiResponse(generateDto.prompt, userId);
           return res.status(200).json({ aiResponse: response.content });
       }
     }
-  
-    // Логика для обычного режима чата
+
+    // 2. Логика для обычного режима чата (когда пользователь не заполняет документ).
     const response = await this.aiService.getAiResponse(generateDto.prompt, userId);
-  
+
+    // Если AI определил, что нужно начать генерацию документа.
     if (response.type === 'start_generation') {
       const templateName = response.content;
-      // Получаем язык выбранного шаблона
       const templateLanguage = TEMPLATES_REGISTRY[templateName]?.language || 'ru';
       const fieldsToFill = await this.aiService.getFieldsForTemplate(templateName);
       const formattedQuestions = await this.aiService.formatQuestionsForUser(fieldsToFill, templateName);
       const requestId = crypto.randomBytes(16).toString('hex');
-  
+
+      // Переводим пользователя в состояние ожидания данных.
       await this.usersService.setChatState(userId, UserChatState.WAITING_FOR_DATA, templateName, requestId);
-  
+
+      // Отправляем первый набор вопросов.
       return res.status(200).json({
         aiResponse: {
           action: 'collect_data',
           requestId: requestId,
           templateName: templateName,
           questions: formattedQuestions,
-          // ИСПРАВЛЕНИЕ №2: Инструкция теперь зависит от языка
           instructions: templateLanguage === 'kz'
               ? 'Құжат үшін деректерді енгізіңіз. Бас тарту үшін "Болдырмау" деп жазыңыз.'
               : 'Пожалуйста, предоставьте данные для документа. Если хотите отменить, напишите "Отмена".'
         }
       });
     }
-  
+
+    // Если это обычный ответ в чате, просто отправляем его.
     return res.status(200).json({ aiResponse: response.content });
   }
 
-  private isDocumentDataRequest(prompt: string): boolean {
-    const documentKeywords = [
-      'адрес', 'организация', 'реквизиты', 'дата', 
-      'подписание', 'документ', 'указать', 'предоставить'
-    ];
-    return documentKeywords.some(keyword => 
-      prompt.toLowerCase().includes(keyword.toLowerCase())
-    );
-  }
-
-  
+  /**
+   * Приватный метод, который обрабатывает финальный этап - генерацию документа.
+   * Вызывается, когда пользователь предоставил данные.
+   * Проверяет тарифные лимиты, извлекает данные, генерирует файл и отправляет его пользователю.
+   * @param user - Объект пользователя.
+   * @param generateDto - DTO с данными от пользователя.
+   * @param res - Объект ответа Express.
+   */
   private async handleDocumentGeneration(user: User, generateDto: GenerateDocumentDto, res: Response) {
     try {
+      // 1. ПРОВЕРКА ТАРИФА И ЛИМИТА НА ГЕНЕРАЦИЮ
       if (user.tariff === 'Базовый') {
         const now = new Date();
         const lastGen = user.last_generation_date;
 
+        // Если последняя генерация была в текущем месяце, запрещаем новую.
         if (lastGen && lastGen.getMonth() === now.getMonth() && lastGen.getFullYear() === now.getFullYear()) {
           const lang = this.aiService.detectLanguage(generateDto.prompt);
           const errorMessage = lang === 'kz'
@@ -144,11 +173,13 @@ export class AiController {
         }
       }
 
+      // 2. ИЗВЛЕЧЕНИЕ ДАННЫХ ИЗ ПРОМПТА ПОЛЬЗОВАТЕЛЯ
       const { data, isComplete, missingFields = [] } = await this.aiService.extractDataForDocx(
         generateDto.prompt,
         user.pending_template_name!,
       );
 
+      // Если AI счел, что данных не хватает, запрашиваем их снова.
       if (!isComplete) {
         const templateLanguage = TEMPLATES_REGISTRY[user.pending_template_name!]?.language || 'ru';
         const missingQuestions = missingFields.map(f => f.question).join('\n- ');
@@ -161,26 +192,23 @@ export class AiController {
           templateName: user.pending_template_name,
         });
       }
-
-      // ================================================================
-      // === ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ: ДОБАВЛЯЕМ НУМЕРАЦИЮ ПРОГРАММНО ===
-      // ================================================================
-      // Проверяем, есть ли в данных массив 'docs' (или другой ключ для вашей таблицы)
+      
+      // 3. ПРОГРАММНОЕ ОБОГАЩЕНИЕ ДАННЫХ (добавление нумерации для таблиц)
       if (data && Array.isArray(data.docs)) {
-        // Проходим по массиву и добавляем поле 'index'
         data.docs.forEach((doc, i) => {
-          doc.index = i + 1; // i начинается с 0, поэтому добавляем 1
+          doc.index = i + 1;
         });
       }
-      // ================================================================
 
-      // Генерируем документ уже с модифицированными данными
+      // 4. ГЕНЕРАЦИЯ ФАЙЛА
       const docxBuffer = this.docxService.generateDocx(user.pending_template_name!, data);
 
+      // 5. РЕГИСТРАЦИЯ УСПЕШНОЙ ПОПЫТКИ (только после генерации файла)
       if (user.tariff === 'Базовый') {
           await this.usersService.setLastGenerationDate(user.id, new Date());
       }
 
+      // 6. СБРОС СОСТОЯНИЯ И ОТПРАВКА ФАЙЛА
       await this.resetToChatMode(user.id);
       
       const encodedFileName = encodeURIComponent(user.pending_template_name!);
@@ -189,6 +217,7 @@ export class AiController {
       return res.send(docxBuffer);
 
     } catch (error) {
+      // 7. ОБРАБОТКА ОШИБОК
       if (error instanceof ForbiddenException) {
           return res.status(403).json({ aiResponse: error.message });
       }
@@ -200,6 +229,10 @@ export class AiController {
     }
   }
 
+  /**
+   * Вспомогательный метод для сброса состояния чата пользователя в IDLE.
+   * @param userId - ID пользователя.
+   */
   private async resetToChatMode(userId: number) {
     await this.usersService.setChatState(
       userId,
@@ -208,8 +241,4 @@ export class AiController {
       null
     );
   }
-  private isCancellationRequest(prompt: string): boolean {
-    const lowerCasePrompt = prompt.toLowerCase();
-    return lowerCasePrompt.includes('отмена') || lowerCasePrompt.includes('cancel');
-}
 }
