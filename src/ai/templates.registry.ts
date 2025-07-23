@@ -19,7 +19,8 @@ export const TEMPLATES_REGISTRY = {
             'sender_year',
             'sender_day',
             'sender_month'
-        ]
+        ],
+        language: 'kz'
     },
     'forma-akta-podtverzhdayushchego-fakt-izmeneniya-zakazchikom-obema-periodichnosti-vypolneniya-rabot-ili-ikh-stoimosti-tseny.docx': {
         name: 'Форма акта, подтверждающего факт изменения заказчиком объема, периодичности выполнения работ или их стоимости (цены)',
@@ -44,7 +45,8 @@ export const TEMPLATES_REGISTRY = {
             'customer_day',
             'customer_month',
             'customer_year'
-        ]
+        ],
+        language: 'ru'
     },
     'forma-akta-priyema-peredachi-tekhnicheskoy-dokumentatsii-dlya-provedeniya-kapitalnogo-remonta-imushchestva.docx': {
         name: 'Форма акта приема-передачи технической документации для проведения капитального ремонта имущества',
@@ -63,7 +65,8 @@ export const TEMPLATES_REGISTRY = {
             'transferring_party_day',
             'transferring_party_month',
             'transferring_party_year'
-        ]
+        ],
+        language: 'ru'
     },
     'forma-akta-priyema-peredachi-tekhnicheskoy-dokumentatsii-dlya-provedeniya-tekushchego-remonta-imushchestva.docx': {
         name: 'Форма акта приёма-передачи технической документации для проведения текущего ремонта имущества',
@@ -81,7 +84,8 @@ export const TEMPLATES_REGISTRY = {
             'transferring_party_day',
             'transferring_party_month',
             'transferring_party_year'
-        ]
+        ],
+        language: 'ru'
     },
     'forma-akta-priyema-peredachi-tekhnicheskoy-i-inoy-dokumentatsii-na-mnogokvartirnyy-zhilyy-dom.docx': {
         name: 'Форма акта приема-передачи технической и иной документации на многоквартирный жилой дом',
@@ -100,7 +104,8 @@ export const TEMPLATES_REGISTRY = {
             'transferor_day',
             'transferor_month',
             'transferor_year'
-        ]
+        ],
+        language: 'ru'
     },
     'forma-akta-priyema-peredachi-tekhnicheskoy-i-ispolnitelnoy-dokumentatsii-sformirovannoy-v-protsesse-provedeniya-kapitalnogo-remonta.docx': {
         name: 'Форма акта приема-передачи технической и исполнительной документации, сформированной в процессе проведения капитального ремонта',
@@ -119,7 +124,8 @@ export const TEMPLATES_REGISTRY = {
             'transferor_day',
             'transferor_month',
             'transferor_year'
-        ]
+        ],
+        language: 'ru'
     },
     'forma-akta-priyema-peredachi-tekhnicheskoy-i-ispolnitelnoy-dokumentatsii-sformirovannoy-v-protsesse-provedeniya-tekushchego-remonta.docx': {
         name: 'Форма акта приёма-передачи технической и исполнительной документации, сформированной в процессе проведения текущего ремонта',
@@ -137,7 +143,8 @@ export const TEMPLATES_REGISTRY = {
             'transferor_day',
             'transferor_month',
             'transferor_year'
-        ]
+        ],
+        language: 'ru'
     },
     'forma-akta-sdachi-priyemki-rabot-vypolnennykh-v-protsesse-kapitalnogo-remonta-imushchestva.docx': {
         name: 'Форма акта сдачи-приемки работ, выполненных в процессе капитального ремонта имущества',
@@ -199,7 +206,8 @@ export const TEMPLATES_REGISTRY = {
             'chairman_signature_fio',
             'commission_signatures', // for cycle
             'member_signature_fio'
-        ]
+        ],
+        language: 'ru'
     },
     'forma-akta-sdachi-priyemki-rabot-vypolnennykh-v-protsesse-tekushchego-remonta-imushchestva.docx': {
         name: 'Форма акта сдачи-приемки работ, выполненных в процессе текущего ремонта имущества',
@@ -255,7 +263,8 @@ export const TEMPLATES_REGISTRY = {
             'chairman_signature_fio',
             'commission_signatures', // for cycle
             'member_signature_fio'
-        ]
+        ],
+        language: 'ru'
     },
     'forma-otcheta-zaklyucheniya-po-itogam-instrumentalnogo-osmotra-mnogokvartirnogo-zhilogo-doma.docx': {
         name: 'Форма отчета (заключения) по итогам инструментального осмотра многоквартирного жилого дома',
@@ -287,7 +296,8 @@ export const TEMPLATES_REGISTRY = {
             'changes_to_operating_instructions',
             'current_technical_condition_category',
             'technical_documentation_compiled'
-        ]
+        ],
+        language: 'ru'
     },
     'kop-paterli-turgyn-uidi-instrumenttik-tekseru-korytyndylary-boiynsha-esep-teme-korytyndy-formasy.docx': {
         name: 'Көп пәтерлі тұрғын үйді инструменттік тексеру қорытындылары бойынша есептеме (қорытынды) формасы',
@@ -319,7 +329,8 @@ export const TEMPLATES_REGISTRY = {
             'changes_to_operating_instructions',
             'current_technical_condition_category',
             'technical_documentation_compiled'
-        ]
+        ],
+        language: 'kz'
     },
     'mulikke-agymdagy-zhondeudi-zhurgizuge-arnalgan-tekhnikalyk-kuzhattamany-kabyldau-tapsyru-aktisinin-nysany.docx': {
         name: 'Мүлікке ағымдағы жөндеуді жүргізуге арналған техникалық құжаттаманың қабылдау-тапсыру актісінің нысаны',
@@ -336,7 +347,8 @@ export const TEMPLATES_REGISTRY = {
             'year',
             'day',
             'month'
-        ]
+        ],
+        language: 'kz'
     },
     'mulikti-agymdagy-zhondeu-protsesinde-oryndalgan-tapsyru-kabyldau-zhumystary-aktisinin-nysany.docx': {
         name: 'Мүлікті ағымдағы жөндеу процесінде орындалған тапсыру-қабылдау жұмыстары актісінің нысаны',
@@ -402,7 +414,8 @@ export const TEMPLATES_REGISTRY = {
             'chairman_signature_fio',
             'commission_members',
             'member_fio'
-        ]
+        ],
+        language: 'kz'
     },
     'tapsyrys-berushinin-zhumystardy-oryndau-kolemin-kezeildigin-nemese-olardyn-kunyn-bagasyn-ozgertu-faktisin-rastaityn-akt-nysany.docx': {
         name: 'Тапсырыс берушінің жұмыстарды орындау көлемін, кезеңділігін немесе олардың құнын (бағасын) өзгерту фактісін растайтын акт нысаны',
@@ -429,6 +442,7 @@ export const TEMPLATES_REGISTRY = {
             'customer_year',
             'customer_day',
             'customer_month'
-        ]
+        ],
+        language: 'kz'
     }
 };

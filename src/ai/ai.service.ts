@@ -20,7 +20,7 @@ export class AiService implements OnModuleInit {
   private fallbackModel: any;
   private vectorStore: MemoryVectorStore;
   private _templateNames: { fileName: string, humanName: string }[];
-  private currentLanguage: 'ru'|'kz' = 'ru';
+  private currentLanguage: 'ru' | 'kz' = 'ru';
 
   constructor(
     private readonly configService: ConfigService,
@@ -99,13 +99,20 @@ export class AiService implements OnModuleInit {
     }
   }
 
-  private detectLanguage(text: string): 'ru'|'kz' {
-    const kzSpecificChars = /[әғқңөұүіһӘҒҚҢӨҰҮІҺ]/;
-    const kzCommonWords = /(және|немесе|үшін|сондай|сол|бірақ|екен|деп|осылайша|алайда)/i;
-    if (kzSpecificChars.test(text) || kzCommonWords.test(text)) {
-        return 'kz';
-    }
-    return 'ru';
+  private detectLanguage(text: string): 'ru' | 'kz' {
+      // Проверка на наличие специфических казахских символов
+      const kzSpecificChars = /[әғқңөұүіһӘҒҚҢӨҰҮІҺ]/;
+      if (kzSpecificChars.test(text)) {
+          return 'kz';
+      }
+
+      // Проверка на наличие распространенных казахских слов (для текстов на латинице или без спец. символов)
+      const kzCommonWords = /(және|немесе|туралы|бойынша|бастап|дейін|үшін|арқылы)/i;
+      if (kzCommonWords.test(text)) {
+          return 'kz';
+      }
+
+      return 'ru';
   }
 
   private async generateWithRetry(prompt: any, history: Content[] = [], retries = 3): Promise<string> {
@@ -138,27 +145,28 @@ export class AiService implements OnModuleInit {
     throw new Error('Не удалось получить ответ от AI после всех попыток.');
   }
   
-  private async getFactualAnswer(prompt: string, history: Content[]): Promise<string> {
+  private async getFactualAnswer(prompt: string, history: Content[], language: 'ru' | 'kz'): Promise<string> {
     if (!this.vectorStore) {
         throw new Error('База знаний не инициализирована.');
     }
     const relevantDocs = await this.vectorStore.similaritySearch(prompt, 3);
     const context = relevantDocs.map(doc => `Из документа ${doc.metadata.source}:\n${doc.pageContent}`).join('\n\n---\n\n');
-    
+
     const finalPrompt = `
-      Твоя роль — 'Цифровой юрист-консультант' для ОСИ в Казахстане. Отвечай строго на основе предоставленного ниже контекста из документов.
-      ВАЖНОЕ ПРАВИЛО ЯЗЫКА: Отвечай на том же языке (русский или казахский), на котором задан "Мой вопрос".
+      Твоя роль - 'Цифровой юрист-консультант' для ОСИ в Казахстане. Отвечай строго на основе предоставленного ниже контекста из документов.
+      
+      ВАЖНОЕ ПРАВИЛО ЯЗЫКА: Отвечай на том же языке (${language}), на котором задан "Мой вопрос".
+
       Если в контексте нет ответа, вежливо сообщи об этом. Не отвечай на вопросы не по теме.
 
       Контекст из документов для ответа:
       ---
       ${context}
       ---
-
       Мой вопрос: "${prompt}"
     `;
     return this.generateWithRetry(finalPrompt, history);
-  }
+}
 
   async getAiResponse(prompt: string, userId: number): Promise<{ type: 'chat' | 'start_generation'; content: any }> {
     try {
@@ -188,30 +196,31 @@ ${this._templateNames.map(t => `- "${t.humanName}" (файл: ${t.fileName})`).j
         const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
 
         if (!jsonMatch) {
-            console.warn('[AI Service] Не удалось распознать намерение в формате JSON, перехожу к RAG-ответу как к запасному варианту.');
-            const answer = await this.getFactualAnswer(prompt, history as Content[]);
-            await this.chatHistoryService.addMessageToHistory(userId, prompt, answer);
-            return { type: 'chat', content: answer };
-        }
+          console.warn('[AI Service] Не удалось распознать намерение в формате JSON, перехожу к RAG-ответу как к запасному варианту.');
+          // ИСПРАВЛЕНИЕ: Добавляем this.currentLanguage как третий аргумент
+          const answer = await this.getFactualAnswer(prompt, history as Content[], this.currentLanguage);
+          await this.chatHistoryService.addMessageToHistory(userId, prompt, answer);
+          return { type: 'chat', content: answer };
+      }
 
         const parsed = JSON.parse(jsonMatch[0]);
         console.log('[AI Service] Распарсенное намерение:', parsed);
 
         if (parsed.intent === 'start_generation' && parsed.templateName) {
-            const foundTemplate = this._templateNames.find(t => t.fileName === parsed.templateName.toLowerCase());
+          const foundTemplate = this._templateNames.find(t => t.fileName === parsed.templateName.toLowerCase());
 
-            if (foundTemplate) {
-                const confirmationMessage = this.currentLanguage === 'kz'
-                    ? `Әрине, "${foundTemplate.humanName}" құжатын дайындауға көмектесемін.`
-                    : `Конечно, я помогу вам подготовить документ: "${foundTemplate.humanName}".`;
+          if (foundTemplate) {
+              // ЭТОТ БЛОК УЖЕ ИСПОЛЬЗУЕТ this.currentLanguage, ТЕПЕРЬ ОН БУДЕТ РАБОТАТЬ ПРАВИЛЬНО
+              const confirmationMessage = this.currentLanguage === 'kz'
+                  ? `Әрине, "${foundTemplate.humanName}" құжатын дайындауға көмектесемін.`
+                  : `Конечно, я помогу вам подготовить документ: "${foundTemplate.humanName}".`;
 
-                await this.chatHistoryService.addMessageToHistory(userId, prompt, confirmationMessage);
-                return { type: 'start_generation', content: foundTemplate.fileName };
-            }
-        }
+              await this.chatHistoryService.addMessageToHistory(userId, prompt, confirmationMessage);
+              return { type: 'start_generation', content: foundTemplate.fileName };
+          }
+      }
 
-        // Если намерение 'chat_response' или шаблон не найден, то отвечаем как консультант
-        const answer = await this.getFactualAnswer(prompt, history as Content[]);
+        const answer = await this.getFactualAnswer(prompt, history as Content[], this.currentLanguage);
         await this.chatHistoryService.addMessageToHistory(userId, prompt, answer);
         return { type: 'chat', content: answer };
 
@@ -225,59 +234,59 @@ ${this._templateNames.map(t => `- "${t.humanName}" (файл: ${t.fileName})`).j
     }
 }
 
-  async getFieldsForTemplate(templateName: string): Promise<any> {
-    const normalizedTemplateName = templateName.toLowerCase();
-    const templateInfo = TEMPLATES_REGISTRY[normalizedTemplateName];
+async getFieldsForTemplate(templateName: string): Promise<any> {
+  const normalizedTemplateName = templateName.toLowerCase();
+  const templateInfo = TEMPLATES_REGISTRY[normalizedTemplateName];
+  if (!templateInfo || !templateInfo.tags_in_template || !templateInfo.language) { // Проверяем и наличие языка
+      throw new Error(`Ошибка конфигурации: Шаблон "${templateName}" не настроен (отсутствуют теги или язык).`);
+  }
 
-    if (!templateInfo || !templateInfo.tags_in_template) {
-      throw new Error(`Ошибка конфигурации: Шаблон "${templateName}" не настроен.`);
-    }
-    
-    try {
+  try {
       const pdfPreviewPath = path.join(process.cwd(), 'knowledge_base', 'templates', 'pdf_previews', normalizedTemplateName.replace('.docx', '.pdf'));
       if (!fs.existsSync(pdfPreviewPath)) {
-        throw new Error(`PDF-превью для шаблона "${normalizedTemplateName}" не найдено.`);
+          throw new Error(`PDF-превью для шаблона "${normalizedTemplateName}" не найдено.`);
       }
-
       const pdfBuffer = fs.readFileSync(pdfPreviewPath);
       const base64Pdf = pdfBuffer.toString('base64');
-      
+
+      // ГЛАВНОЕ ИЗМЕНЕНИЕ: мы явно указываем AI, на каком языке должны быть вопросы
       const prompt = `
         Проанализируй этот PDF-документ. Он является шаблоном.
         Твоя задача - составить список вопросов для пользователя, чтобы собрать все необходимые данные для заполнения этого документа.
+
         Верни ответ СТРОГО в виде JSON-массива объектов, где каждый объект имеет два поля: "tag" и "question".
-        
-        ВАЖНОЕ ПРАВИЛО ЯЗЫКА: Вопросы должны быть на том же языке, на котором написан текст в PDF-шаблоне (русский или казахский).
-        
+
+        ВАЖНОЕ ПРАВИЛО ЯЗЫКА: Вопросы должны быть на языке "${templateInfo.language}".
+
         Особое правило для тегов-массивов: Если в списке тегов есть тег, обозначающий массив (например, "documents"), ты ДОЛЖЕН задать ОДИН, ПОДРОБНЫЙ вопрос для этого родительского тега.
         НЕ ЗАДАВАЙ ОТДЕЛЬНЫЕ ВОПРОСЫ для под-полей (например, "doc_index", "doc_name").
-        
+
         Список всех тегов, которые ты должен учесть:
         ${templateInfo.tags_in_template.map(tag => `- ${tag}`).join('\n')}
       `;
-      
+
       const result = await this.generateWithRetry([
-        prompt,
-        { inlineData: { mimeType: 'application/pdf', data: base64Pdf } }
+          { text: prompt },
+          { inlineData: { mimeType: 'application/pdf', data: base64Pdf } }
       ]);
-      
-      const cleanResponse = result.replace(/```json/g, '').replace(/```/g, '').trim();
+      const cleanResponse = result.replace(/^```json/g, '').replace(/```$/g, '').trim();
       return JSON.parse(cleanResponse);
-      
-    } catch (error) {
+  } catch (error) {
       console.error(`[AI Service] Ошибка при анализе шаблона ${normalizedTemplateName}:`, error);
       throw new Error('Не удалось проанализировать шаблон документа.');
-    }
   }
+}
 
-  async formatQuestionsForUser(fields: any[], templateName: string): Promise<string> {
-    const templateHumanName = TEMPLATES_REGISTRY[templateName.toLowerCase()]?.name || templateName;
+async formatQuestionsForUser(fields: any[], templateName: string): Promise<string> {
+  const templateHumanName = TEMPLATES_REGISTRY[templateName.toLowerCase()]?.name || templateName;
+  const language = TEMPLATES_REGISTRY[templateName.toLowerCase()]?.language || 'ru';
     
     const prompt = `
       Ты - чат-бот-помощник. Из следующего JSON-массива вопросов сформируй красивый, форматированный текст, который можно показать пользователю для сбора данных.
       Текст должен быть вежливым, понятным и содержать примеры для сложных полей.
 
-      ВАЖНОЕ ПРАВИЛО ЯЗЫКА: Весь текст ответа (заголовки, вопросы, примеры) должен быть на том же языке (русский или казахский), на котором сформулированы "question" в предоставленном JSON-массиве. Не переводи их.
+    ВАЖНОЕ ПРАВИЛО ЯЗЫКА: Весь текст ответа (заголовки, вопросы, примеры) должен быть на том же языке (${language}), на котором сформулированы "question" в предоставленном JSON-массиве. Не переводи их.
+
 
       Не используй Markdown для форматирования (жирный текст для заголовков, списки для перечислений).
       Не включай никаких вводных слов вроде "Конечно, вот...", просто сам опросник.
