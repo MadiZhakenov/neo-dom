@@ -290,57 +290,61 @@ export class AiService implements OnModuleInit {
     return this.generateWithRetry(prompt);
   }
 
-  async extractDataForDocx(userAnswersPrompt: string, templateName: string): Promise<any> {
-    console.log(`[AI Service] Начинаю извлечение данных для шаблона: ${templateName}`);
-    
+  async extractDataForDocx(
+    userAnswersPrompt: string,
+    templateName: string
+  ): Promise<{
+    data: any;
+    isComplete: boolean;
+    missingFields?: {tag: string, question: string}[];
+  }> {
     const normalizedTemplateName = templateName.toLowerCase();
     const templateInfo = TEMPLATES_REGISTRY[normalizedTemplateName];
-
+    
     if (!templateInfo || !templateInfo.tags_in_template) {
-        throw new Error(`Шаблон "${templateName}" не найден или не настроен в templates.registry.ts.`);
+      throw new Error(`Шаблон "${templateName}" не найден.`);
     }
-
-    console.log(`[AI Service] Ожидаемые теги: ${templateInfo.tags_in_template.join(', ')}`);
-
+  
+    // Сначала получаем вопросы для шаблона
+    const fields = await this.getFieldsForTemplate(templateName);
+    const fieldMap = new Map(fields.map(f => [f.tag, f.question]));
+  
+    const requiredFields = templateInfo.tags_in_template.map(tag => ({
+      tag,
+      question: fieldMap.get(tag) || `Укажите значение для ${tag}`
+    }));
+  
     const prompt = `
-        Твоя задача — извлечь данные из следующего текста и структурировать их в JSON.
-        Требования:
-        1. Используй предоставленные теги.
-        2. Для массивов (например, 'documents') создавай массив объектов.
-        3. Если данных для какого-то тега нет в тексте — оставляй поле пустым или null.
-        
-        ВАЖНОЕ ПРАВИЛО ЯЗЫКА: Данные для заполнения (значения в JSON) должны быть на том же языке, на котором они предоставлены в "Тексте для анализа". Не переводи имена собственные, адреса и другие данные.
-        
-        Теги для извлечения: ${templateInfo.tags_in_template.join(', ')}
-        
-        Пример правильного формата для массива "documents":
-        "documents": [
-            { "doc_index": "1", "doc_name": "Проектная документация", "doc_sheet_count": "45", "doc_notes": "Раздел АР" }
-        ]
-        
-        Текст для анализа:
-        "${userAnswersPrompt}"
-        
-        Верни JSON без дополнительных комментариев или оберток.
+      Проанализируй следующий текст и извлеки данные для заполнения шаблона документа.
+      Требуемые поля: ${JSON.stringify(requiredFields, null, 2)}
+      
+      Если каких-то данных не хватает, верни JSON с isComplete: false и списком missingFields 
+      (в том же формате массив объектов с tag и question).
+      Если все данные есть - верни isComplete: true и извлеченные данные в поле data.
+      
+      Формат ответа:
+      {
+        "isComplete": boolean,
+        "missingFields": [{tag: string, question: string}] (если isComplete=false),
+        "data": object (если isComplete=true)
+      }
+      
+      Текст для анализа:
+      "${userAnswersPrompt}"
     `;
-
+  
     try {
-        console.log('[AI Service] Отправка промпта на извлечение данных в ИИ...');
-        const rawResponse = await this.generateWithRetry(prompt);
-        console.log('[AI Service] Сырой ответ с извлеченными данными:', rawResponse);
-
-        const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) {
-            throw new Error('Не удалось извлечь JSON из ответа AI');
-        }
-        
-        const extractedData = JSON.parse(jsonMatch[0]);
-        console.log('[AI Service] Успешно извлеченные данные:', extractedData);
-        return extractedData;
-        
+      const rawResponse = await this.generateWithRetry(prompt);
+      const cleanResponse = rawResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+      return JSON.parse(cleanResponse);
     } catch (error) {
-        console.error('[AI Service] Ошибка при извлечении данных:', error);
-        throw new Error(`Не удалось извлечь данные для шаблона ${templateName}. Пожалуйста, проверьте формат вводимых данных.`);
+      console.error('Ошибка извлечения данных:', error);
+      return {
+        isComplete: false,
+        missingFields: requiredFields,
+        data: null
+      };
     }
   }
+  
 }
