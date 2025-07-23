@@ -27,76 +27,106 @@ export class AiController {
   ) {}
 
   @UseGuards(JwtAuthGuard)
-@Post('chat')
-async chatWithAssistant(
+  @Post('chat')
+  async chatWithAssistant(
     @Request() req,
     @Body() generateDto: GenerateDocumentDto,
     @Res() res: Response,
-) {
+  ) {
     const userId = req.user.userId;
     const user = await this.usersService.findOneById(userId);
     if (!user) { throw new NotFoundException('Пользователь не найден.'); }
 
-    // --- БЛОК ЛОГИКИ ТАРИФА (остается без изменений) ---
+    // --- БЛОК ЛОГИКИ ТАРИФА ---
     if (user.tariff === 'Базовый') {
-        const now = new Date();
-        const lastGen = user.last_generation_date;
-        if (!lastGen || lastGen.getMonth() !== now.getMonth() || lastGen.getFullYear() !== now.getFullYear()) {
-            await this.usersService.resetGenerationCount(user.id);
-            user.generation_count = 0;
-        }
-        if (user.generation_count >= 100) {
-            throw new ForbiddenException('Превышен лимит сообщений для Базового тарифа.');
-        }
+      const now = new Date();
+      const lastGen = user.last_generation_date;
+      if (!lastGen || lastGen.getMonth() !== now.getMonth() || lastGen.getFullYear() !== now.getFullYear()) {
+        await this.usersService.resetGenerationCount(user.id);
+      }
+      if (user.generation_count >= 100) {
+        throw new ForbiddenException('Превышен лимит сообщений для Базового тарифа.');
+      }
     }
     await this.usersService.incrementGenerationCount(user.id);
-    // --- КОНЕЦ БЛОКА ЛОГИКИ ТАРИФА ---
+    // --- КОНЕЦ БЛОКА ---
 
-    // УЛУЧШЕННАЯ ЛОГИКА ОБРАБОТКИ СОСТОЯНИЙ
-    // Проверяем, не хочет ли пользователь отменить действие, ВНЕ зависимости от текущего состояния
-    if (this.isCancellationRequest(generateDto.prompt)) {
-        await this.resetToChatMode(userId);
-        return res.status(200).json({
-            aiResponse: 'Режим заполнения документа отменен. Чем еще могу помочь?'
-        });
-    }
 
-    // Если мы в режиме сбора данных
+    // ===== НОВАЯ УМНАЯ ЛОГИКА УПРАВЛЕНИЯ ДИАЛОГОМ =====
+
     if (user.chat_state === UserChatState.WAITING_FOR_DATA) {
-        // ... то передаем управление специальному обработчику
-        return this.handleDocumentGeneration(user, generateDto, res);
+      // ИСПРАВЛЕНИЕ №1: Проверяем, что pending_template_name не null
+      if (!user.pending_template_name) {
+        // Это нештатная ситуация, сбрасываем состояние и просим пользователя начать заново
+        console.error(`Ошибка состояния: пользователь ${userId} в WAITING_FOR_DATA, но pending_template_name отсутствует.`);
+        await this.resetToChatMode(userId);
+        return res.status(500).json({ aiResponse: 'Произошла внутренняя ошибка состояния. Пожалуйста, попробуйте начать заново.' });
+      }
+
+      const analysis = await this.aiService.analyzeInputDuringDataCollection(generateDto.prompt, user.pending_template_name);
+
+      switch (analysis.intent) {
+        case 'provide_data':
+          return this.handleDocumentGeneration(user, generateDto, res);
+
+        case 'switch_document':
+          // ИСПРАВЛЕНИЕ №2: Проверяем, что AI вернул нам имя шаблона
+          if (!analysis.templateName) {
+            // Если AI не смог определить шаблон, действуем как при общем вопросе
+            console.warn('AI определил смену документа, но не вернул имя шаблона.');
+            await this.resetToChatMode(userId);
+            const response = await this.aiService.getAiResponse(generateDto.prompt, userId);
+            return res.status(200).json({ aiResponse: response.content });
+          }
+
+          const newTemplateName = analysis.templateName;
+          const fields = await this.aiService.getFieldsForTemplate(newTemplateName);
+          const questions = await this.aiService.formatQuestionsForUser(fields, newTemplateName);
+          
+          await this.usersService.setChatState(userId, UserChatState.WAITING_FOR_DATA, newTemplateName, user.pending_request_id);
+
+          return res.status(200).json({
+            aiResponse: {
+              action: 'collect_data',
+              requestId: user.pending_request_id,
+              templateName: newTemplateName,
+              questions: `Отлично, переключаемся на другой документ.\n\n${questions}`,
+              instructions: `Пожалуйста, предоставьте данные для нового документа. Если хотите отменить, напишите "Отмена".`
+            }
+          });
+
+        case 'general_query':
+          await this.resetToChatMode(userId);
+          const response = await this.aiService.getAiResponse(generateDto.prompt, userId);
+          return res.status(200).json({ aiResponse: response.content });
+      }
     }
 
-    // Стандартный флоу: определяем намерение и отвечаем
+    // Логика для обычного режима чата (остается без изменений)
     const response = await this.aiService.getAiResponse(generateDto.prompt, userId);
 
     if (response.type === 'start_generation') {
-        const templateName = response.content;
-        const fieldsToFill = await this.aiService.getFieldsForTemplate(templateName);
-        const formattedQuestions = await this.aiService.formatQuestionsForUser(fieldsToFill, templateName);
-        const requestId = crypto.randomBytes(16).toString('hex');
+      const templateName = response.content;
+      const fieldsToFill = await this.aiService.getFieldsForTemplate(templateName);
+      const formattedQuestions = await this.aiService.formatQuestionsForUser(fieldsToFill, templateName);
+      const requestId = crypto.randomBytes(16).toString('hex');
 
-        await this.usersService.setChatState(
-            userId,
-            UserChatState.WAITING_FOR_DATA,
-            templateName,
-            requestId,
-        );
+      await this.usersService.setChatState(userId, UserChatState.WAITING_FOR_DATA, templateName, requestId);
 
-        return res.status(200).json({
-            aiResponse: {
-                action: 'collect_data',
-                requestId: requestId,
-                templateName: templateName,
-                questions: formattedQuestions,
-                instructions: `Пожалуйста, предоставьте данные для документа. Если хотите отменить, напишите "Отмена".`
-            }
-        });
+      return res.status(200).json({
+        aiResponse: {
+          action: 'collect_data',
+          requestId: requestId,
+          templateName: templateName,
+          questions: formattedQuestions,
+          instructions: `Пожалуйста, предоставьте данные для документа. Если хотите отменить, напишите "Отмена".`
+        }
+      });
     }
 
     return res.status(200).json({ aiResponse: response.content });
-}
-  
+  }
+
   private isDocumentDataRequest(prompt: string): boolean {
     const documentKeywords = [
       'адрес', 'организация', 'реквизиты', 'дата', 

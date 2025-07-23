@@ -361,5 +361,35 @@ ${this._templateNames.map(t => `- "${t.humanName}" (файл: ${t.fileName})`).j
         };
     }
   }
-  
+  async analyzeInputDuringDataCollection(prompt: string, currentTemplateName: string): Promise<{ intent: 'provide_data' | 'switch_document' | 'general_query'; templateName?: string }> {
+    const intentAnalysisPrompt = `
+      Твоя задача - проанализировать сообщение пользователя, который сейчас находится в процессе заполнения документа "${currentTemplateName}". Определи его истинное намерение.
+
+      Возможные намерения:
+      1. "provide_data": Пользователь предоставляет запрошенные данные. Это наиболее вероятный сценарий. Сообщение содержит адреса, ФИО, даты, списки и т.д.
+      2. "switch_document": Пользователь явно выражает желание отменить текущий процесс и начать заполнять ДРУГОЙ документ. Он может написать "сделай другой акт" или "хочу оформить [название другого документа]".
+      3. "general_query": Сообщение пользователя не является ни данными, ни запросом на смену документа. Это может быть вопрос ("какой сегодня день?"), отмена ("отмена", "cancel") или просто приветствие.
+
+      Список ВСЕХ доступных документов:
+      ${this._templateNames.map(t => `- "${t.humanName}" (файл: ${t.fileName})`).join('\n')}
+
+      Проанализируй запрос и верни ТОЛЬКО JSON:
+      - Если это данные, верни: {"intent": "provide_data"}
+      - Если это запрос на смену документа, найди самый подходящий и верни: {"intent": "switch_document", "templateName": "точное_имя_файла.docx"}
+      - Если это отмена или общий вопрос, верни: {"intent": "general_query"}
+
+      Запрос пользователя: "${prompt}"
+    `;
+
+    const rawResponse = await this.generateWithRetry(intentAnalysisPrompt);
+    const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+
+    // Если модель не смогла определить, по умолчанию считаем, что это данные
+    console.warn('[AI Service] Не удалось определить вложенное намерение, по умолчанию считаем, что это данные.');
+    return { intent: 'provide_data' };
+  }
 }
