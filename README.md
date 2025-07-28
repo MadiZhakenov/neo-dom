@@ -1,98 +1,49 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# README: Модуль AI-ассистента (Neo OSI Backend)
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+## 1. Общее описание
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+Данный модуль является ядром интеллектуального ассистента в проекте **Neo OSI**. Его основная задача — автоматизация процесса создания юридических и бухгалтерских документов через интуитивно понятный диалоговый интерфейс. Модуль предоставляет API, которое позволяет фронтенд-приложению (PWA) вести многошаговый диалог с пользователем, собирать необходимые данные и генерировать на их основе готовые `.docx` файлы.
 
-## Description
+Это решение позволяет значительно сократить время на рутинные операции, минимизировать ошибки человеческого фактора и предоставить пользователям круглосуточный сервис по подготовке документов.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## 2. Ключевые возможности
 
-## Project setup
+-   **Билингвальная поддержка (RU/KZ):** Система автоматически определяет язык пользователя и ведет весь диалог (ответы, вопросы, инструкции) на соответствующем языке.
+-   **Stateful (контекстный) диалог:** В отличие от простых чат-ботов, ассистент "помнит" контекст беседы. Он управляет состоянием пользователя, позволяя гибко переключаться между заполнением разных документов или выходить в режим общей консультации.
+-   **Динамическая генерация документов:** На основе выбранного шаблона AI генерирует уникальный список вопросов, а после получения данных формирует готовый `.docx` файл.
+-   **RAG (Retrieval-Augmented Generation):** Для ответов на общие вопросы используется векторная база знаний, созданная на основе нормативных документов. Это позволяет ассистенту давать консультации, основываясь на реальных данных, а не на общей информации из интернета.
+-   **Интегрированная бизнес-логика:** Реализована система тарифных планов ("Базовый", "Премиум") с ежемесячными лимитами на количество генерируемых документов.
 
-```bash
-$ npm install
-```
+## 3. Технологический стек
 
-## Compile and run the project
+-   **Backend:** NestJS, TypeScript
+-   **AI & LLM:** Google Gemini API (модели `gemini-1.5-pro` и `gemini-1.5-flash`), LangChain.js
+-   **Базы данных:** PostgreSQL (для хранения состояния пользователя и истории чата), In-memory Vector Store (для RAG)
+-   **Генерация документов:** `docxtemplater`
+-   **Prompt Engineering:** Разработана система многоуровневых промптов для решения задач определения намерений, генерации вопросов и извлечения структурированных данных.
 
-```bash
-# development
-$ npm run start
+## 4. Настройка и запуск
 
-# watch mode
-$ npm run start:dev
+### 4.1. Предварительные требования
+- Установлены Node.js (v18+), npm/yarn, Docker.
+- Репозиторий проекта склонирован (`git clone -b dev ...`).
+- Запущен контейнер с базой данных (`docker-compose up -d`).
 
-# production mode
-$ npm run start:prod
-```
+### 4.2. Конфигурация
+1.  Создайте файл `.env` в корневой директории проекта.
+2.  Скопируйте в него содержимое из `example.env` или воспользуйтесь шаблоном ниже.
+3.  **Обязательно** заполните переменную `GEMINI_API_KEY` вашим ключом доступа к Google AI Studio.
 
-## Run tests
+```env
+# Ключ для доступа к Google Gemini API
+GEMINI_API_KEY=ВАШ_СЕКРЕТНЫЙ_КЛЮЧ_GEMINI
 
-```bash
-# unit tests
-$ npm run test
+# Настройки подключения к базе данных (соответствуют docker-compose.yml)
+DB_HOST=localhost
+DB_PORT=5433
+DB_USERNAME=admin
+DB_PASSWORD=mysecretpassword
+DB_DATABASE=neo_osi_db
 
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
-```
-
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
-
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+# Секретный ключ для подписи JWT токенов
+JWT_SECRET=THIS_IS_A_VERY_SECRET_AND_LONG_KEY_FOR_JWT
