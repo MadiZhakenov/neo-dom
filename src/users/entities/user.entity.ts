@@ -52,4 +52,11 @@ export class User {
 
   @Column({ type: 'varchar', nullable: true })
   pending_request_id: string | null;
+
+  /*Дата и время, когда истекает активная премиум-подписка. 
+    Если null, значит, у пользователя базовый тариф.
+   */
+  
+  @Column({ type: 'timestamp', nullable: true, default: null })
+  subscription_expires_at: Date | null;
 }

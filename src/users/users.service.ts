@@ -125,4 +125,27 @@ export class UsersService {
       last_generation_date: date,
     });
   }
+
+  /**
+   * Активирует премиум-статус для пользователя.
+   * @param userId - ID пользователя.
+   * @param expirationDate - Дата, до которой действует подписка.
+   */
+  async activatePremium(userId: number, expirationDate: Date): Promise<void> {
+    await this.usersRepository.update(userId, {
+      tariff: 'Премиум',
+      subscription_expires_at: expirationDate,
+    });
+  }
+
+  /**
+   * Деактивирует премиум-статус (возвращает к базовому).
+   * @param userId - ID пользователя.
+   */
+  async deactivatePremium(userId: number): Promise<void> {
+    await this.usersRepository.update(userId, {
+      tariff: 'Базовый',
+      subscription_expires_at: null,
+    });
+  }
 }

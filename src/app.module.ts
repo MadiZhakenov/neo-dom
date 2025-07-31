@@ -15,6 +15,7 @@ import { AuthModule } from './auth/auth.module';
 import { DataImportModule } from './data-import/data-import.module';
 import { ChatModule } from './chat/chat.module';
 import { DocumentsModule } from './documents/documents.module';
+import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { DocumentsModule } from './documents/documents.module';
     DataImportModule,
     DocumentsModule,
     ChatModule,
+    SubscriptionsModule,
   ],
   controllers: [AppController], // Корневой контроллер
   providers: [AppService], // Корневой сервис
