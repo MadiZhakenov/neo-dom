@@ -4,8 +4,8 @@ const pdf = require('pdf-parse');
 
 // Директории, в которых нужно искать PDF для базы знаний
 const inputDirs = [
-  path.join(__dirname, '..', 'knowledge_base'), // Добавлено '..' для корректного пути из /dist
-  path.join(__dirname, '..', 'knowledge_base/templates/pdf_previews'),
+  path.join(__dirname, 'knowledge_base'), // Добавлено '..' для корректного пути из /dist
+  path.join(__dirname, 'knowledge_base/templates/pdf_previews'),
 ];
 // Папка для сохранения текстовых кэш-файлов
 const cacheDir = path.join(__dirname, '..', '.pdf-cache');

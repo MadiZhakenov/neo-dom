@@ -1,3 +1,5 @@
+// src\subscriptions\subscriptions.module.ts
+
 import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { SubscriptionsController } from './subscriptions.controller';

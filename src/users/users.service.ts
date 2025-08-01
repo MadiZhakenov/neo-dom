@@ -148,4 +148,35 @@ export class UsersService {
       subscription_expires_at: null,
     });
   }
+  /**
+   * Устанавливает токен и время его жизни для сброса пароля.
+   */
+  async setPasswordResetToken(userId: number, token: string, expires: Date): Promise<void> {
+    await this.usersRepository.update(userId, {
+      password_reset_token: token,
+      password_reset_expires: expires,
+    });
+  }
+
+  /**
+   * Находит пользователя по токену сброса пароля.
+   */
+  async findOneByPasswordResetToken(token: string): Promise<User | null> {
+    return this.usersRepository.findOne({
+      where: {
+        password_reset_token: token,
+      },
+    });
+  }
+
+  /**
+   * Обновляет хэш пароля пользователя и очищает токены сброса.
+   */
+  async updatePassword(userId: number, password_hash: string): Promise<void> {
+    await this.usersRepository.update(userId, {
+      password_hash: password_hash,
+      password_reset_token: null,
+      password_reset_expires: null,
+    });
+  }
 }

@@ -1,3 +1,5 @@
+// src\subscriptions\subscriptions.controller.ts
+
 import { Controller, Post, Body, UseGuards, Request } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SubscriptionsService } from './subscriptions.service';

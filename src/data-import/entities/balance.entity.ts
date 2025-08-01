@@ -1,3 +1,5 @@
+// src\data-import\entities\balance.entity.ts
+
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
 import { Apartment } from './apartment.entity';
 

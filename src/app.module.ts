@@ -16,6 +16,7 @@ import { DataImportModule } from './data-import/data-import.module';
 import { ChatModule } from './chat/chat.module';
 import { DocumentsModule } from './documents/documents.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
+import { FinanceModule } from './finance/finance.module';
 
 @Module({
   imports: [
@@ -35,7 +36,7 @@ import { SubscriptionsModule } from './subscriptions/subscriptions.module';
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_DATABASE'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'], // Автоматическая загрузка всех сущностей
-        synchronize: true, // ВНИМАНИЕ: true только для разработки. Автоматически применяет схему.
+        synchronize: false, // ВНИМАНИЕ: true только для разработки. Автоматически применяет схему.
         logging: configService.get<string>('DB_LOGGING') === 'true',
       }),
     }),
@@ -47,6 +48,7 @@ import { SubscriptionsModule } from './subscriptions/subscriptions.module';
     DocumentsModule,
     ChatModule,
     SubscriptionsModule,
+    FinanceModule,
   ],
   controllers: [AppController], // Корневой контроллер
   providers: [AppService], // Корневой сервис

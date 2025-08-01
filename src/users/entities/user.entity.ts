@@ -59,4 +59,16 @@ export class User {
   
   @Column({ type: 'timestamp', nullable: true, default: null })
   subscription_expires_at: Date | null;
+
+   /**
+   * Токен для сброса/установки пароля.
+   */
+   @Column({ type: 'varchar', nullable: true, default: null })
+   password_reset_token: string | null;
+ 
+   /**
+    * Время, до которого действителен токен сброса пароля.
+    */
+   @Column({ type: 'timestamp', nullable: true, default: null })
+   password_reset_expires: Date | null;
 }
