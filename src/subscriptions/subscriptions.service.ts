@@ -15,76 +15,80 @@ export class SubscriptionsService {
     private readonly httpService: HttpService,
     private readonly usersService: UsersService,
   ) {
-    // Получаем ключ из конфигурации
     const secret = this.configService.get<string>('APPLE_IAP_SHARED_SECRET');
-    
-    // ПРОВЕРЯЕМ, что ключ действительно существует.
     if (!secret) {
-      // Если ключа нет, "роняем" приложение при запуске с понятной ошибкой.
-      // Это предотвратит ошибки во время работы.
-      throw new Error('APPLE_IAP_SHARED_SECRET не найден в .env файле! Модуль подписок не может работать.');
+      throw new Error('APPLE_IAP_SHARED_SECRET не найден в .env файле!');
     }
-    
-    // Если проверка пройдена, присваиваем значение.
-    // Теперь TypeScript уверен, что 'secret' - это строка.
     this.sharedSecret = secret;
   }
-  
+
   /**
-   * Проверяет квитанцию Apple и активирует подписку для пользователя.
-   * @param userId - ID пользователя, который совершил покупку.
-   * @param receipt - Строка квитанции из iOS-приложения.
+   * Главный публичный метод. Начинает проверку с production URL.
+   * @param userId - ID пользователя.
+   * @param receipt - Квитанция от Apple.
    */
   async verifyAppleSubscription(userId: number, receipt: string) {
-    const appleUrl = process.env.NODE_ENV === 'production' ? this.appleProductionUrl : this.appleSandboxUrl;
+    // По умолчанию всегда стучимся в прод, как рекомендует Apple
+    const appleUrl = this.appleProductionUrl;
+    return this._handleAppleVerification(userId, receipt, appleUrl, true); // Добавляем флаг isProduction
+  }
 
+  /**
+   * Приватный "рабочий" метод, содержащий всю логику верификации.
+   * @param userId - ID пользователя.
+   * @param receipt - Квитанция.
+   * @param appleUrl - URL для проверки (prod или sandbox).
+   * @param isProduction - Флаг, указывающий, является ли это первой проверкой на проде.
+   */
+  private async _handleAppleVerification(userId: number, receipt: string, appleUrl: string, isProduction: boolean = false) {
     try {
       const response = await lastValueFrom(
         this.httpService.post(appleUrl, {
           'receipt-data': receipt,
-          'password': this.sharedSecret,
+          password: this.sharedSecret,
           'exclude-old-transactions': true,
         }),
       );
 
       const appleResponse = response.data;
 
-      // Apple рекомендует сначала проверять статус 21007 (это значит, что мы стучимся в прод с сэндбокс-квитанцией)
-      if (appleResponse.status === 21007) {
-        return this.verifyAppleSubscriptionInSandbox(userId, receipt);
+      if (isProduction && (appleResponse.status === 21007 || appleResponse.status === 21002)) {
+        console.log(`Получен статус ${appleResponse.status} от прода. Повторяем запрос в Sandbox...`);
+        return this._handleAppleVerification(userId, receipt, this.appleSandboxUrl);
       }
 
       if (appleResponse.status !== 0) {
         throw new BadRequestException(`Невалидная квитанция. Статус Apple: ${appleResponse.status}`);
       }
+      
+      // --- НОВАЯ ЗАЩИТНАЯ ПРОВЕРКА ---
+      // Проверяем, есть ли вообще информация о покупках в ответе.
+      if (!appleResponse.latest_receipt_info || appleResponse.latest_receipt_info.length === 0) {
+        // Если массив пуст или отсутствует, значит, это валидная квитанция, но без покупок.
+        throw new BadRequestException('Квитанция валидна, но не содержит данных о покупках.');
+      }
+      // --- КОНЕЦ ПРОВЕРКИ ---
 
-      // Находим самую последнюю транзакцию
       const latestTransaction = appleResponse.latest_receipt_info[0];
       const productId = latestTransaction.product_id;
       const expiresDateMs = parseInt(latestTransaction.expires_date_ms, 10);
       const expirationDate = new Date(expiresDateMs);
 
-      // Проверяем, что подписка премиальная и не истекла
       if (productId.includes('premium') && expirationDate > new Date()) {
         await this.usersService.activatePremium(userId, expirationDate);
-        return { success: true, message: 'Премиум-подписка успешно активирована.' };
+        return { success: true, message: `Премиум-подписка успешно активирована (среда: ${isProduction ? 'prod' : 'sandbox'}).` };
       } else {
         await this.usersService.deactivatePremium(userId);
-        throw new BadRequestException('Подписка не является премиальной или истекла.');
+        throw new BadRequestException('Последняя покупка не является активной премиум-подпиской.');
       }
     } catch (error) {
-      console.error('Ошибка верификации Apple IAP:', error);
+      console.error('Ошибка верификации Apple IAP:', error?.response?.data || error.message || error);
+      // Если это уже известная ошибка BadRequest, просто пробрасываем ее дальше
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      // Иначе оборачиваем в нашу
       throw new BadRequestException('Не удалось проверить квитанцию.');
     }
-  }
-  
-  // Приватный метод для повторной проверки в сэндбоксе
-  private async verifyAppleSubscriptionInSandbox(userId: number, receipt: string) {
-    // Логика почти такая же, как в основном методе, но URL всегда sandbox
-    // ... (можно вынести общую логику в отдельный метод, чтобы не дублировать код)
-    console.log('Повторная проверка в Sandbox...');
-    // Здесь должна быть реализация, аналогичная основному методу, но с `appleSandboxUrl`
-    // Это домашнее задание :)
-    return { success: false, message: 'Требуется проверка в Sandbox' };
   }
 }
