@@ -4,7 +4,7 @@
  * Инкапсулирует всю логику работы с сущностью User.
  */
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User, UserChatState } from './entities/user.entity';
@@ -124,5 +124,89 @@ export class UsersService {
     await this.usersRepository.update(userId, {
       last_generation_date: date,
     });
+  }
+
+  /**
+   * Активирует премиум-статус для пользователя.
+   * @param userId - ID пользователя.
+   * @param expirationDate - Дата, до которой действует подписка.
+   */
+  async activatePremium(userId: number, expirationDate: Date): Promise<void> {
+    await this.usersRepository.update(userId, {
+      tariff: 'Премиум',
+      subscription_expires_at: expirationDate,
+    });
+  }
+
+  /**
+   * Деактивирует премиум-статус (возвращает к базовому).
+   * @param userId - ID пользователя.
+   */
+  async deactivatePremium(userId: number): Promise<void> {
+    await this.usersRepository.update(userId, {
+      tariff: 'Базовый',
+      subscription_expires_at: null,
+    });
+  }
+  /**
+   * Устанавливает токен и время его жизни для сброса пароля.
+   */
+  async setPasswordResetToken(userId: number, token: string, expires: Date): Promise<void> {
+    await this.usersRepository.update(userId, {
+      password_reset_token: token,
+      password_reset_expires: expires,
+    });
+  }
+
+  /**
+   * Находит пользователя по токену сброса пароля.
+   */
+  async findOneByPasswordResetToken(token: string): Promise<User | null> {
+    return this.usersRepository.findOne({
+      where: {
+        password_reset_token: token,
+      },
+    });
+  }
+
+  /**
+   * Обновляет хэш пароля пользователя и очищает токены сброса.
+   */
+  async updatePassword(userId: number, password_hash: string): Promise<void> {
+    await this.usersRepository.update(userId, {
+      password_hash: password_hash,
+      password_reset_token: null,
+      password_reset_expires: null,
+    });
+  }
+
+  /**
+   * Позволяет авторизованному пользователю сменить свой пароль.
+   * @param userId - ID пользователя из JWT токена.
+   * @param oldPass - Текущий пароль для проверки.
+   * @param newPass - Новый пароль.
+   */
+  async changePassword(userId: number, oldPass: string, newPass: string): Promise<{ message: string }> {
+    const user = await this.usersRepository.findOneBy({ id: userId });
+
+    // --- ИСПРАВЛЕНИЕ 1: ДОБАВЛЯЕМ ПРОВЕРКУ ---
+    if (!user) {
+      // Этого не должно случиться, если токен валидный, но проверка нужна
+      throw new UnauthorizedException('Пользователь не найден.');
+    }
+    
+    // Теперь TypeScript знает, что после этой проверки 'user' не может быть null
+    const isMatch = await bcrypt.compare(oldPass, user.password_hash);
+    // 2. Хэшируем и сохраняем новый пароль
+    const salt = await bcrypt.genSalt();
+    const newHash = await bcrypt.hash(newPass, salt);
+
+    await this.usersRepository.update(userId, {
+      password_hash: newHash,
+      // Сбрасываем флаг принудительной смены, если он был
+      password_change_required: false,
+    });
+    
+    return { message: 'Пароль успешно изменен.' };
   }
 }

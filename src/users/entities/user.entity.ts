@@ -52,4 +52,26 @@ export class User {
 
   @Column({ type: 'varchar', nullable: true })
   pending_request_id: string | null;
+
+  /*Дата и время, когда истекает активная премиум-подписка. 
+    Если null, значит, у пользователя базовый тариф.
+   */
+  
+  @Column({ type: 'timestamp', nullable: true, default: null })
+  subscription_expires_at: Date | null;
+
+   /**
+   * Токен для сброса/установки пароля.
+   */
+   @Column({ type: 'varchar', nullable: true, default: null })
+   password_reset_token: string | null;
+ 
+   /**
+    * Время, до которого действителен токен сброса пароля.
+    */
+   @Column({ type: 'timestamp', nullable: true, default: null })
+   password_reset_expires: Date | null;
+
+   @Column({ type: 'boolean', default: false })
+  password_change_required: boolean;
 }

@@ -1,3 +1,5 @@
+// src\finance\chart-render.service.ts
+
 import { Injectable } from '@nestjs/common';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 

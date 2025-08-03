@@ -3,16 +3,19 @@
  * @description Сервис, реализующий логику аутентификации пользователей.
  */
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { MailService } from '../mail/mail.service';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class AuthService {
   constructor(
     private usersService: UsersService,
     private jwtService: JwtService,
+    private mailService: MailService,
   ) {}
 
   /**
@@ -41,5 +44,43 @@ export class AuthService {
     return {
       access_token: this.jwtService.sign(payload),
     };
+  }
+
+  async forgotPassword(email: string): Promise<{ message: string }> {
+    const user = await this.usersService.findOneByEmail(email);
+    if (!user) {
+      console.warn(`Запрос на сброс пароля для несуществующего email: ${email}`);
+      return { message: 'Если такой пользователь существует, ему будет отправлена ссылка для сброса пароля.' };
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const expires = new Date(Date.now() + 3600000); // 1 час
+
+    await this.usersService.setPasswordResetToken(user.id, token, expires);
+
+    // --- ЗАМЕНЯЕМ CONSOLE.LOG НА РЕАЛЬНУЮ ОТПРАВКУ ---
+    await this.mailService.sendPasswordResetEmail(user.email, token);
+
+    return { message: 'Если такой пользователь существует, ему будет отправлена ссылка для сброса пароля.' };
+  }
+  /**
+   * Устанавливает новый пароль для пользователя, используя токен.
+   * @param token - Токен из ссылки.
+   * @param newPassword - Новый пароль.
+   */
+  async resetPassword(token: string, newPassword: string): Promise<{ message: string }> {
+    const user = await this.usersService.findOneByPasswordResetToken(token);
+
+    if (!user) {
+      throw new UnauthorizedException('Токен для сброса пароля недействителен или истек.');
+    }
+
+    // Хэшируем и сохраняем новый пароль
+    const salt = await bcrypt.genSalt();
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+    
+    await this.usersService.updatePassword(user.id, hashedPassword);
+
+    return { message: 'Пароль успешно обновлен.' };
   }
 }
