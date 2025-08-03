@@ -7,6 +7,7 @@ import { Controller, Post, Body, Get, UseGuards, Request, Param, NotFoundExcepti
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { ChangePasswordDto } from './dto/change-password.dto';
 
 @Controller('users')
 export class UsersController {
@@ -69,4 +70,22 @@ export class UsersController {
       },
     };
   }
+
+  /**
+   * Эндпоинт для смены пароля аутентифицированным пользователем.
+   */
+  @UseGuards(JwtAuthGuard) // <-- Защищаем эндпоинт, доступ только для залогиненных
+  @Post('change-password')
+  async changePassword(
+    @Request() req, // <-- Берем ID пользователя из токена
+    @Body() changePasswordDto: ChangePasswordDto,
+  ) {
+    const userId = req.user.userId;
+    return this.usersService.changePassword(
+      userId,
+      changePasswordDto.oldPassword,
+      changePasswordDto.newPassword,
+    );
+  }
+  
 }

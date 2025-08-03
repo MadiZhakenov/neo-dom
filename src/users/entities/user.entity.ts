@@ -71,4 +71,7 @@ export class User {
     */
    @Column({ type: 'timestamp', nullable: true, default: null })
    password_reset_expires: Date | null;
+
+   @Column({ type: 'boolean', default: false })
+  password_change_required: boolean;
 }

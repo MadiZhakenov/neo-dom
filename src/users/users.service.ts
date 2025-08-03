@@ -4,7 +4,7 @@
  * Инкапсулирует всю логику работы с сущностью User.
  */
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User, UserChatState } from './entities/user.entity';
@@ -178,5 +178,35 @@ export class UsersService {
       password_reset_token: null,
       password_reset_expires: null,
     });
+  }
+
+  /**
+   * Позволяет авторизованному пользователю сменить свой пароль.
+   * @param userId - ID пользователя из JWT токена.
+   * @param oldPass - Текущий пароль для проверки.
+   * @param newPass - Новый пароль.
+   */
+  async changePassword(userId: number, oldPass: string, newPass: string): Promise<{ message: string }> {
+    const user = await this.usersRepository.findOneBy({ id: userId });
+
+    // --- ИСПРАВЛЕНИЕ 1: ДОБАВЛЯЕМ ПРОВЕРКУ ---
+    if (!user) {
+      // Этого не должно случиться, если токен валидный, но проверка нужна
+      throw new UnauthorizedException('Пользователь не найден.');
+    }
+    
+    // Теперь TypeScript знает, что после этой проверки 'user' не может быть null
+    const isMatch = await bcrypt.compare(oldPass, user.password_hash);
+    // 2. Хэшируем и сохраняем новый пароль
+    const salt = await bcrypt.genSalt();
+    const newHash = await bcrypt.hash(newPass, salt);
+
+    await this.usersRepository.update(userId, {
+      password_hash: newHash,
+      // Сбрасываем флаг принудительной смены, если он был
+      password_change_required: false,
+    });
+    
+    return { message: 'Пароль успешно изменен.' };
   }
 }
