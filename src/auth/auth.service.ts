@@ -83,4 +83,24 @@ export class AuthService {
 
     return { message: 'Пароль успешно обновлен.' };
   }
+
+  /**
+   * Генерирует новый JWT токен для пользователя по его ID.
+   * Используется для обновления токена после важных изменений (например, смены тарифа).
+   * @param userId - ID пользователя.
+   * @returns Объект с новым access_token.
+   */
+  async refreshTokenForUser(userId: number) {
+    // Получаем самые свежие данные пользователя из базы
+    const user = await this.usersService.findOneById(userId);
+    if (!user) {
+      // Этого не должно произойти, но на всякий случай
+      throw new UnauthorizedException('Пользователь не найден для обновления токена.');
+    }
+
+    const payload = { email: user.email, sub: user.id, tariff: user.tariff };
+    return {
+      access_token: this.jwtService.sign(payload),
+    };
+  }
 }

@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
-export class InitialSchema1754216986038 implements MigrationInterface {
-    name = 'InitialSchema1754216986038'
+export class InitialSchema1754301768927 implements MigrationInterface {
+    name = 'InitialSchema1754301768927'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
         await queryRunner.query(`CREATE TYPE "public"."users_chat_state_enum" AS ENUM('idle', 'waiting_for_data')`);
@@ -19,13 +19,13 @@ export class InitialSchema1754216986038 implements MigrationInterface {
         await queryRunner.query(`ALTER TABLE "balances" ALTER COLUMN "amount" TYPE numeric(10,2)`);
         await queryRunner.query(`ALTER TABLE "balances" ALTER COLUMN "amount" DROP DEFAULT`);
         await queryRunner.query(`ALTER TABLE "balances" ADD CONSTRAINT "FK_8c6c1f8b8e299c919bb3a92d0ce" FOREIGN KEY ("apartmentId") REFERENCES "apartments"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "apartments" ADD CONSTRAINT "FK_1f75995a38751fa73fc87355718" FOREIGN KEY ("residentId") REFERENCES "users"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "chat_message" ADD CONSTRAINT "FK_a44ec486210e6f8b4591776d6f3" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "apartments" ADD CONSTRAINT "FK_1f75995a38751fa73fc87355718" FOREIGN KEY ("residentId") REFERENCES "users"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`ALTER TABLE "chat_message" DROP CONSTRAINT "FK_a44ec486210e6f8b4591776d6f3"`);
         await queryRunner.query(`ALTER TABLE "apartments" DROP CONSTRAINT "FK_1f75995a38751fa73fc87355718"`);
+        await queryRunner.query(`ALTER TABLE "chat_message" DROP CONSTRAINT "FK_a44ec486210e6f8b4591776d6f3"`);
         await queryRunner.query(`ALTER TABLE "balances" DROP CONSTRAINT "FK_8c6c1f8b8e299c919bb3a92d0ce"`);
         await queryRunner.query(`ALTER TABLE "balances" ALTER COLUMN "amount" SET DEFAULT '0'`);
         await queryRunner.query(`ALTER TABLE "balances" ALTER COLUMN "amount" TYPE numeric(14,2)`);
