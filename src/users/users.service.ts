@@ -6,7 +6,7 @@
 
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, LessThan } from 'typeorm';
 import { User, UserChatState } from './entities/user.entity';
 import * as bcrypt from 'bcrypt';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -208,5 +208,39 @@ export class UsersService {
     });
     
     return { message: 'Пароль успешно изменен.' };
+  }
+
+  /**
+   * Находит всех пользователей с истекшей премиум-подпиской и меняет их тариф на "Базовый".
+   * Вызывается фоновой задачей (Cron Job).
+   * @returns Количество деактивированных пользователей.
+   */
+  async deactivateExpiredPremiums(): Promise<number> {
+    const now = new Date();
+    
+    // 1. Находим всех пользователей, у которых:
+    //    - Тариф "Премиум"
+    //    - И дата истечения подписки УЖЕ ПРОШЛА (меньше, чем текущая)
+    const expiredUsers = await this.usersRepository.find({
+      where: {
+        tariff: 'Премиум',
+        subscription_expires_at: LessThan(now),
+      },
+    });
+
+    if (expiredUsers.length === 0) {
+      return 0; // Если таких нет, выходим
+    }
+
+    // 2. Получаем ID всех найденных пользователей
+    const userIds = expiredUsers.map(user => user.id);
+
+    // 3. Одним запросом обновляем всем им тариф и сбрасываем дату
+    await this.usersRepository.update(userIds, {
+      tariff: 'Базовый',
+      subscription_expires_at: null,
+    });
+
+    return userIds.length;
   }
 }

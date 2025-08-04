@@ -158,6 +158,14 @@ export class AiController {
    */
   private async handleDocumentGeneration(user: User, generateDto: GenerateDocumentDto, res: Response) {
     try {
+      // Проверяем, не истекла ли премиум-подписка
+      if (user.tariff === 'Премиум' && user.subscription_expires_at && user.subscription_expires_at < new Date()) {
+        console.log(`Премиум-подписка для пользователя ${user.id} истекла. Меняем тариф на Базовый.`);
+        // Деактивируем премиум и обновляем объект user для этого запроса
+        await this.usersService.deactivatePremium(user.id);
+        user.tariff = 'Базовый'; 
+      }
+      
       // 1. ПРОВЕРКА ТАРИФА И ЛИМИТА НА ГЕНЕРАЦИЮ
       if (user.tariff === 'Базовый') {
         const now = new Date();

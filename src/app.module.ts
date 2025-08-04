@@ -17,9 +17,12 @@ import { ChatModule } from './chat/chat.module';
 import { DocumentsModule } from './documents/documents.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { FinanceModule } from './finance/finance.module';
+import { ScheduleModule } from '@nestjs/schedule';
+import { TasksModule } from './tasks/tasks.module';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     // Глобальный модуль конфигурации для доступа к .env файлам
     ConfigModule.forRoot({
       isGlobal: true,
@@ -49,6 +52,7 @@ import { FinanceModule } from './finance/finance.module';
     ChatModule,
     SubscriptionsModule,
     FinanceModule,
+    TasksModule,
   ],
   controllers: [AppController], // Корневой контроллер
   providers: [AppService], // Корневой сервис
