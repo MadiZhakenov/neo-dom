@@ -3,6 +3,7 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
 import { lastValueFrom } from 'rxjs';
+import { AuthService } from '../auth/auth.service';
 
 @Injectable()
 export class SubscriptionsService {
@@ -14,6 +15,8 @@ export class SubscriptionsService {
     private readonly configService: ConfigService,
     private readonly httpService: HttpService,
     private readonly usersService: UsersService,
+    private readonly authService: AuthService,
+
   ) {
     const secret = this.configService.get<string>('APPLE_IAP_SHARED_SECRET');
     if (!secret) {
@@ -74,11 +77,21 @@ export class SubscriptionsService {
       const expiresDateMs = parseInt(latestTransaction.expires_date_ms, 10);
       const expirationDate = new Date(expiresDateMs);
 
+      // --- 3. ИЗМЕНЯЕМ БЛОК ПРИНЯТИЯ РЕШЕНИЯ ---
       if (productId.includes('premium') && expirationDate > new Date()) {
         await this.usersService.activatePremium(userId, expirationDate);
-        return { success: true, message: `Премиум-подписка успешно активирована (среда: ${isProduction ? 'prod' : 'sandbox'}).` };
+        
+        // ГЕНЕРИРУЕМ И ВОЗВРАЩАЕМ НОВЫЙ ТОКЕН!
+        const newToken = await this.authService.refreshTokenForUser(userId);
+        
+        return { 
+          success: true, 
+          message: `Премиум-подписка успешно активирована.`,
+          ...newToken // Добавляем { access_token: "..." } в ответ
+        };
       } else {
         await this.usersService.deactivatePremium(userId);
+        // Здесь тоже можно вернуть обновленный токен, если нужно
         throw new BadRequestException('Последняя покупка не является активной премиум-подпиской.');
       }
     } catch (error) {
