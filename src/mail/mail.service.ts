@@ -36,9 +36,10 @@ export class MailService {
    * @param token - Токен для сброса.
    */
   async sendPasswordResetEmail(to: string, token: string): Promise<void> {
-    // TODO: Заменить 'http://localhost:3000' на URL вашего фронтенда
+    // --- ИСПРАВЛЕННАЯ ССЫЛКА ---
+    // Теперь она ведет на наш новый GET-эндпоинт на бэкенде
     const resetLink = `http://localhost:3000/auth/reset-password?token=${token}`;
-
+    
     const messageData = {
       to: [to],
       from: this.fromEmail,

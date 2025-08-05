@@ -4,6 +4,8 @@
   "sourceRoot": "src",
   "compilerOptions": {
     "deleteOutDir": true,
-    "assets": ["assets/**/*"]
+    "assets": [
+      { "include": "../public", "outDir": ".", "watchAssets": true }
+    ]
   }
 }
