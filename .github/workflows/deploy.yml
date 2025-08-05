@@ -1,0 +1,32 @@
+name: Deploy to Production Server
+
+on:
+  push:
+    branches: [ main ] # Запускается при пуше в ветку main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Deploy to Server via SSH
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        script: |
+          # Переходим в папку с проектом на сервере (убедись, что путь правильный)
+          cd ~/neo-osi-backend
+          
+          # Останавливаем текущие контейнеры
+          docker-compose down
+          
+          # Скачиваем последние изменения из ветки main
+          git pull origin main
+          
+          # Создаем/перезаписываем .env файл из секрета GitHub
+          echo "${{ secrets.ENV_FILE }}" > .env
+          
+          # Пересобираем и перезапускаем Docker контейнеры в фоновом режиме
+          docker-compose up -d --build
