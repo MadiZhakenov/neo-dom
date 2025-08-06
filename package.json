@@ -19,11 +19,11 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "typeorm": "typeorm-ts-node-commonjs -d dist/data-source.js",
-    "migration:generate": "npm run typeorm -- migration:generate src/migrations/InitialSchema",
-    "migration:run": "npm run typeorm -- migration:run",
+    "typeorm:local": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/data-source.ts",
+    "migration:generate": "npm run typeorm:local -- migration:generate src/migrations/NewMigration",
+    "migration:run:local": "npm run typeorm:local -- migration:run",
     "migration:revert": "npm run typeorm -- migration:revert",
-    "db:migrate": "npm run typeorm -- migration:run"
+    "db:migrate:prod": "typeorm-ts-node-commonjs -d dist/data-source.js migration:run"
   },
   "dependencies": {
     "@google/genai": "^1.10.0",
