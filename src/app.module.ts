@@ -19,6 +19,7 @@ import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { FinanceModule } from './finance/finance.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TasksModule } from './tasks/tasks.module';
+import { dataSourceOptions } from './data-source';
 
 @Module({
   imports: [
@@ -38,7 +39,10 @@ import { TasksModule } from './tasks/tasks.module';
         username: configService.get<string>('DB_USERNAME'),
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_DATABASE'),
-        entities: [__dirname + '/**/*.entity{.ts,.js}'], // Автоматическая загрузка всех сущностей
+        dataSourceOptions,
+        // Переопределяем entities и migrations, чтобы они работали с TS-файлами в разработке
+        entities: [__dirname + '/**/*.entity{.ts,.js}'],
+        migrations: [__dirname + '/migrations/*{.ts,.js}'],
         synchronize: false, // ВНИМАНИЕ: true только для разработки. Автоматически применяет схему.
         logging: configService.get<string>('DB_LOGGING') === 'true',
       }),
