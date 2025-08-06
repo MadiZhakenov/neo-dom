@@ -19,7 +19,7 @@ import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { FinanceModule } from './finance/finance.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TasksModule } from './tasks/tasks.module';
-import { dataSourceOptions } from './data-source';
+
 
 @Module({
   imports: [
@@ -27,6 +27,7 @@ import { dataSourceOptions } from './data-source';
     // Глобальный модуль конфигурации для доступа к .env файлам
     ConfigModule.forRoot({
       isGlobal: true,
+      envFilePath: '.env',
     }),
     // Асинхронная настройка подключения к базе данных PostgreSQL
     TypeOrmModule.forRootAsync({
@@ -34,12 +35,12 @@ import { dataSourceOptions } from './data-source';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         type: 'postgres',
+        url: configService.get<string>('DATABASE_URL'),
         host: configService.get<string>('DB_HOST'),
-        port: parseInt(configService.get<string>('DB_PORT', '5432')),
+        port: configService.get<number>('DB_PORT'),
         username: configService.get<string>('DB_USERNAME'),
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_DATABASE'),
-        dataSourceOptions,
         // Переопределяем entities и migrations, чтобы они работали с TS-файлами в разработке
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
         migrations: [__dirname + '/migrations/*{.ts,.js}'],
