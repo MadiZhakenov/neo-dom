@@ -1,40 +1,47 @@
-# Этап 1: Сборка приложения
+# =============================================================
+# Этап 1: "Builder" - Сборочный цех
+# Здесь есть все инструменты: TypeScript, компиляторы, Python
+# =============================================================
 FROM node:18-alpine AS builder
 
 WORKDIR /neo-osi-backend
 
-# Устанавливаем системные зависимости, если нужны для canvas
+# Устанавливаем системные зависимости для сборки 'canvas'
 RUN apk add --no-cache build-base g++ cairo-dev jpeg-dev pango-dev giflib-dev python3
 
-# --- ИСПРАВЛЕНИЕ: МЕНЯЕМ ПОРЯДОК ---
-# 1. Сначала копируем package.json и package-lock.json
+# Копируем package.json и устанавливаем ВСЕ зависимости (включая devDependencies)
 COPY package*.json ./
-
-# 2. Теперь запускаем npm install. Он найдет package.json.
 RUN npm install
 
-# 3. Теперь копируем ВЕСЬ остальной код
+# Копируем весь остальной код
 COPY . .
-# --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
 # Запускаем скрипт кэширования
 RUN npm run cache
 
-# Собираем основной проект
+# Собираем TypeScript в JavaScript
 RUN npm run build
 
+# =============================================================
+# Этап 2: "Production" - Финальный, "чистый" образ
+# Здесь только то, что нужно для ЗАПУСКА. Нет TypeScript, нет Python.
+# =============================================================
+FROM node:18-alpine
 
-# Копируем необходимые файлы
+WORKDIR /neo-osi-backend
+
+# Устанавливаем ТОЛЬКО те системные зависимости, которые нужны для работы 'canvas'
+RUN apk add --no-cache cairo jpeg pango giflib
+
+# Копируем package.json и устанавливаем ТОЛЬКО production-зависимости
+# Это делает образ меньше и безопаснее
+COPY package*.json ./
+RUN npm install --omit=dev
+
+# Копируем скомпилированный код и ассеты из этапа "Builder"
 COPY --from=builder /neo-osi-backend/dist ./dist
-COPY --from=builder /neo-osi-backend/node_modules ./node_modules
-COPY --from=builder /neo-osi-backend/package*.json ./
 COPY --from=builder /neo-osi-backend/.pdf-cache ./.pdf-cache
-
-
-# Копируем всю базу знаний, включая шаблоны
 COPY --from=builder /neo-osi-backend/knowledge_base ./knowledge_base
-
-# Копируем шаблоны для рендеринга
 COPY --from=builder /neo-osi-backend/views ./views
 
 # Запускаем приложение
