@@ -4,7 +4,7 @@
  * Инкапсулирует всю логику работы с сущностью User.
  */
 
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { User, UserChatState } from './entities/user.entity';
@@ -242,5 +242,34 @@ export class UsersService {
     });
 
     return userIds.length;
+  }
+
+  /**
+   * Получает и форматирует данные профиля для фронтенда.
+   * Включает актуальный статус подписки.
+   * @param userId - ID пользователя.
+   */
+  async getUserProfile(userId: number) {
+    const user = await this.findOneById(userId);
+
+    if (!user) {
+      throw new NotFoundException('Пользователь не найден.');
+    }
+    
+    // Определяем, активна ли подписка
+    const isPremiumActive = user.tariff === 'Премиум' && user.subscription_expires_at && user.subscription_expires_at > new Date();
+
+    return {
+      id: user.id,
+      email: user.email,
+      fullName: user.full_name,
+      phone: user.phone,
+      role: user.role,
+      subscription: {
+        isActive: isPremiumActive,
+        // Если подписка активна, отдаем дату истечения, иначе null
+        expiresAt: isPremiumActive ? user.subscription_expires_at : null,
+      },
+    };
   }
 }
