@@ -25,7 +25,7 @@ WORKDIR /neo-osi-backend
 COPY --from=builder /neo-osi-backend/dist ./dist
 COPY --from=builder /neo-osi-backend/node_modules ./node_modules
 COPY --from=builder /neo-osi-backend/package*.json ./
-COPY --from=builder /neo-osi-backend/.pdf-cache ./.pdf-cache # <-- Эта команда теперь будет работать
+COPY --from=builder /neo-osi-backend/.pdf-cache ./.pdf-cache
 
 # Запускаем приложение
 CMD ["node", "dist/main"]
