@@ -34,8 +34,9 @@ RUN npm run build
 FROM node:18-alpine
 WORKDIR /neo-osi-backend
 
-# Устанавливаем ТОЛЬКО runtime-зависимости для 'canvas'
-RUN apk add --no-cache cairo jpeg pango giflib
+# --- ИСПРАВЛЕНИЕ: ДОБАВЛЯЕМ УСТАНОВКУ ЗАВИСИМОСТЕЙ И СЮДА ---
+# 'canvas' требует их не только для сборки, но и для запуска.
+RUN apk add --no-cache build-base g++ cairo-dev jpeg-dev pango-dev giflib-dev python3
 
 # Копируем package.json и устанавливаем ТОЛЬКО production-зависимости
 COPY package*.json ./
