@@ -1,16 +1,28 @@
 # Этап 1: Сборка приложения
 FROM node:18-alpine AS builder
+
 WORKDIR /neo-osi-backend
-# ...
+
+# Устанавливаем системные зависимости, если нужны для canvas
+RUN apk add --no-cache build-base g++ cairo-dev jpeg-dev pango-dev giflib-dev python3
+
+# --- ИСПРАВЛЕНИЕ: МЕНЯЕМ ПОРЯДОК ---
+# 1. Сначала копируем package.json и package-lock.json
+COPY package*.json ./
+
+# 2. Теперь запускаем npm install. Он найдет package.json.
 RUN npm install
+
+# 3. Теперь копируем ВЕСЬ остальной код
 COPY . .
-# ...
+# --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
+# Запускаем скрипт кэширования
+RUN npm run cache
+
+# Собираем основной проект
 RUN npm run build
 
-# Этап 2: Создание "боевого" образа
-FROM node:18-alpine
-WORKDIR /neo-osi-backend
-# ...
 
 # Копируем необходимые файлы
 COPY --from=builder /neo-osi-backend/dist ./dist
