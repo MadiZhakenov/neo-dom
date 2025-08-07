@@ -2,17 +2,16 @@ const fs = require('fs');
 const path = require('path');
 const pdf = require('pdf-parse');
 
-// Директории, в которых нужно искать PDF для базы знаний
-const inputDirs = [
-  path.join(__dirname, 'knowledge_base'), // Добавлено '..' для корректного пути из /dist
-  path.join(__dirname, 'knowledge_base/templates/pdf_previews'),
-];
-// Папка для сохранения текстовых кэш-файлов
-const cacheDir = path.join(__dirname, '..', '.pdf-cache');
+// --- ИЗМЕНЕНИЕ: Строим все пути от местоположения этого файла ---
+// __dirname всегда указывает на папку, в которой лежит ТЕКУЩИЙ файл.
+const basePath = __dirname; 
 
-/**
- * Асинхронная функция для создания текстового кэша из PDF-файлов.
- */
+const inputDirs = [
+  path.join(basePath, 'knowledge_base'),
+  path.join(basePath, 'knowledge_base', 'templates', 'pdf_previews'),
+];
+const cacheDir = path.join(basePath, '.pdf-cache');
+
 async function createCache() {
   console.log('--- НАЧИНАЮ КЭШИРОВАНИЕ БАЗЫ ЗНАНИЙ ---');
   if (!fs.existsSync(cacheDir)) {
@@ -42,8 +41,8 @@ async function createCache() {
         const cachePath = path.join(cacheDir, `${fileName}.txt`);
         console.log(`- Обрабатываю: ${fileName}...`);
         const dataBuffer = fs.readFileSync(filePath);
-        const data = await pdf(dataBuffer); // Парсим PDF
-        fs.writeFileSync(cachePath, data.text); // Сохраняем текст в кэш
+        const data = await pdf(dataBuffer);
+        fs.writeFileSync(cachePath, data.text);
         console.log(`  ...УСПЕХ! Текст сохранен в .pdf-cache/${fileName}.txt`);
       } catch (error) {
         console.error(`  ...ПРОВАЛ! Ошибка при обработке файла ${fileName}:`, error.message);
@@ -53,5 +52,4 @@ async function createCache() {
   console.log('\n--- КЭШИРОВАНИЕ ЗАВЕРШЕНО ---');
 }
 
-// Запускаем кэширование сразу после объявления
 createCache();

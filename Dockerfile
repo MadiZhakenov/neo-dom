@@ -1,23 +1,15 @@
-# Этап 1: Сборка приложения
 FROM node:18-alpine AS builder
 
-# --- ИЗМЕНЕНИЕ: Указываем правильную рабочую директорию ---
-# Вместо /app мы будем использовать /neo-osi-backend (или любое другое имя)
-# Это предотвратит путаницу со стандартной /app
 WORKDIR /neo-osi-backend
 
-# Устанавливаем системные зависимости...
+# Устанавливаем системные зависимости
 RUN apk add --no-cache build-base g++ cairo-dev jpeg-dev pango-dev giflib-dev python3
 
-# Копируем сначала package.json для кэширования слоев
 COPY package*.json ./
 RUN npm install
 
-# Теперь копируем ВЕСЬ остальной код
+# Копируем ВЕСЬ код, включая .pdf-cache, который мы сгенерируем локально
 COPY . .
-
-# Запускаем скрипт кэширования
-RUN node cache-knowledge-base.js
 
 # Собираем основной проект
 RUN npm run build
@@ -27,14 +19,13 @@ FROM node:18-alpine
 
 RUN apk add --no-cache cairo jpeg pango giflib
 
-# Устанавливаем ту же рабочую директорию
 WORKDIR /neo-osi-backend
 
-# Копируем необходимые файлы из этапа сборки
+# Копируем необходимые файлы
 COPY --from=builder /neo-osi-backend/dist ./dist
 COPY --from=builder /neo-osi-backend/node_modules ./node_modules
 COPY --from=builder /neo-osi-backend/package*.json ./
-COPY --from=builder /neo-osi-backend/.pdf-cache ./.pdf-cache
+COPY --from=builder /neo-osi-backend/.pdf-cache ./.pdf-cache # <-- Эта команда теперь будет работать
 
 # Запускаем приложение
-CMD ["node", "dist/main"]```
+CMD ["node", "dist/main"]
