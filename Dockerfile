@@ -47,6 +47,7 @@ COPY --from=builder /neo-osi-backend/dist ./dist
 COPY --from=builder /neo-osi-backend/.pdf-cache ./.pdf-cache
 COPY --from=builder /neo-osi-backend/knowledge_base ./knowledge_base
 COPY --from=builder /neo-osi-backend/views ./views
+COPY --from=builder /neo-osi-backend/assets ./assets
 
 # Запускаем приложение
 CMD ["node", "dist/main"]
