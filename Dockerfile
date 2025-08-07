@@ -1,20 +1,22 @@
 # Этап 1: Сборка приложения
 FROM node:18-alpine AS builder
 
+# --- ИЗМЕНЕНИЕ: Указываем правильную рабочую директорию ---
+# Вместо /app мы будем использовать /neo-osi-backend (или любое другое имя)
+# Это предотвратит путаницу со стандартной /app
+WORKDIR /neo-osi-backend
+
 # Устанавливаем системные зависимости...
 RUN apk add --no-cache build-base g++ cairo-dev jpeg-dev pango-dev giflib-dev python3
 
-WORKDIR /app
-
+# Копируем сначала package.json для кэширования слоев
 COPY package*.json ./
-
 RUN npm install
 
-# Копируем ВЕСЬ код, включая папку knowledge_base
+# Теперь копируем ВЕСЬ остальной код
 COPY . .
 
-# --- НОВАЯ КОМАНДА: ЗАПУСКАЕМ СКРИПТ КЭШИРОВАНИЯ ---
-# Мы запускаем его здесь, после того как скопировали все файлы
+# Запускаем скрипт кэширования
 RUN node cache-knowledge-base.js
 
 # Собираем основной проект
@@ -23,20 +25,16 @@ RUN npm run build
 # Этап 2: Создание "боевого" образа
 FROM node:18-alpine
 
-# ... остальная часть файла без изменений ...
 RUN apk add --no-cache cairo jpeg pango giflib
 
-WORKDIR /app
+# Устанавливаем ту же рабочую директорию
+WORKDIR /neo-osi-backend
 
-# Копируем скомпилированный код
-COPY --from=builder /app/dist ./dist
-# Копируем зависимости
-COPY --from=builder /app/node_modules ./node_modules
-# Копируем package.json
-COPY --from=builder /app/package*.json ./
-
-# --- ВАЖНО: КОПИРУЕМ СОЗДАННЫЙ КЭШ ---
-COPY --from=builder /app/.pdf-cache ./.pdf-cache
+# Копируем необходимые файлы из этапа сборки
+COPY --from=builder /neo-osi-backend/dist ./dist
+COPY --from=builder /neo-osi-backend/node_modules ./node_modules
+COPY --from=builder /neo-osi-backend/package*.json ./
+COPY --from=builder /neo-osi-backend/.pdf-cache ./.pdf-cache
 
 # Запускаем приложение
-CMD ["node", "dist/main"]
+CMD ["node", "dist/main"]```
