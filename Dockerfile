@@ -1,25 +1,51 @@
-# Этап 1: "Builder" - Сборочный цех
-FROM node:18-alpine AS builder
+# =============================================================
+# Этап 1: "Dependencies" - Установка зависимостей
+# =============================================================
+FROM node:18-alpine AS deps
 WORKDIR /neo-osi-backend
-# Устанавливаем системные зависимости для сборки
-RUN apk add --no-cache build-base g++ cairo-dev jpeg-dev pango-dev giflib-dev python3
-# ... остальной код первого этапа (COPY, npm install, COPY, npm run cache, npm run build) ...
 
+# Устанавливаем системные зависимости
+RUN apk add --no-cache build-base g++ cairo-dev jpeg-dev pango-dev giflib-dev python3
+
+# Копируем package.json и устанавливаем ВСЕ зависимости
+COPY package*.json ./
+RUN npm install
 
 # =============================================================
-# Этап 2: "Production" - Финальный, "чистый" образ
+# Этап 2: "Builder" - Сборка проекта
+# =============================================================
+FROM node:18-alpine AS builder
+WORKDIR /neo-osi-backend
+
+# Копируем ВСЕ зависимости, установленные на предыдущем этапе
+COPY --from=deps /neo-osi-backend/node_modules ./node_modules
+# Копируем остальной код
+COPY . .
+
+# Запускаем скрипт кэширования
+RUN npm run cache
+
+# Собираем TypeScript в JavaScript
+RUN npm run build
+
+# =============================================================
+# Этап 3: "Production" - Финальный, "чистый" образ
 # =============================================================
 FROM node:18-alpine
 WORKDIR /neo-osi-backend
 
-# --- ИСПРАВЛЕНИЕ: ДОБАВЛЯЕМ УСТАНОВКУ ЗАВИСИМОСТЕЙ И СЮДА ---
-# 'canvas' требует их не только для сборки, но и для запуска.
-RUN apk add --no-cache build-base g++ cairo-dev jpeg-dev pango-dev giflib-dev python3
+# Устанавливаем ТОЛЬКО runtime-зависимости для 'canvas'
+RUN apk add --no-cache cairo jpeg pango giflib
 
 # Копируем package.json и устанавливаем ТОЛЬКО production-зависимости
 COPY package*.json ./
 RUN npm install --omit=dev
 
-# Копируем скомпилированный код и ассеты из этапа "Builder"
+# Копируем скомпилированный код и все ассеты из этапа "Builder"
 COPY --from=builder /neo-osi-backend/dist ./dist
-# ... остальной код второго этапа (COPY и CMD) ...
+COPY --from=builder /neo-osi-backend/.pdf-cache ./.pdf-cache
+COPY --from=builder /neo-osi-backend/knowledge_base ./knowledge_base
+COPY --from=builder /neo-osi-backend/views ./views
+
+# Запускаем приложение
+CMD ["node", "dist/main"]
