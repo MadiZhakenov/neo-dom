@@ -9,23 +9,28 @@ export class MailService {
   private readonly client;
   private readonly domain: string;
   private readonly fromEmail: string;
+  private readonly backendUrl: string; // <-- Добавляем новое свойство
+
 
   constructor(private readonly configService: ConfigService) {
     // 1. Сначала получаем значения в локальные переменные
     const apiKey = this.configService.get<string>('MAILGUN_API_KEY');
     const domain = this.configService.get<string>('MAILGUN_DOMAIN');
     const fromEmail = this.configService.get<string>('MAILGUN_FROM_EMAIL');
+    // Получаем URL бэкенда
+    const backendUrl = this.configService.get<string>('BACKEND_URL');
+
 
     // 2. Проверяем их на существование
-    if (!apiKey || !domain || !fromEmail) {
-      throw new Error('Ключевые переменные Mailgun (.env) не определены!');
+    if (!apiKey || !domain || !fromEmail || !backendUrl) {
+      throw new Error('Ключевые переменные Mailgun или BACKEND_URL (.env) не определены!');
     }
 
     // 3. Только после успешной проверки присваиваем свойствам класса.
     // TypeScript теперь счастлив.
     this.domain = domain;
     this.fromEmail = fromEmail;
-
+    this.backendUrl = backendUrl
     this.mailgun = new Mailgun(formData);
     this.client = this.mailgun.client({ username: 'api', key: apiKey });
   }
@@ -38,7 +43,7 @@ export class MailService {
   async sendPasswordResetEmail(to: string, token: string): Promise<void> {
     // --- ИСПРАВЛЕННАЯ ССЫЛКА ---
     // Теперь она ведет на наш новый GET-эндпоинт на бэкенде
-    const resetLink = `http://localhost:3000/auth/reset-password?token=${token}`;
+    const resetLink = `${this.backendUrl}/auth/reset-password?token=${token}`;
     
     const messageData = {
       to: [to],

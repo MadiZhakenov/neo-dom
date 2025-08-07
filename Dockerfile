@@ -1,37 +1,42 @@
 # Этап 1: Сборка приложения
-# Мы используем полную версию node:18-alpine, а не slim, чтобы были доступны инструменты
 FROM node:18-alpine AS builder
 
-# Устанавливаем системные зависимости, необходимые для компиляции 'canvas'
-# build-base - это компиляторы (make, g++, etc.)
-# python3 - нужен для node-gyp
-# cairo-dev, jpeg-dev, ... - это библиотеки для работы с графикой
+# Устанавливаем системные зависимости...
 RUN apk add --no-cache build-base g++ cairo-dev jpeg-dev pango-dev giflib-dev python3
 
 WORKDIR /app
 
 COPY package*.json ./
 
-# Устанавливаем зависимости. Теперь у npm будут все инструменты для сборки canvas.
 RUN npm install
 
+# Копируем ВЕСЬ код, включая папку knowledge_base
 COPY . .
 
+# --- НОВАЯ КОМАНДА: ЗАПУСКАЕМ СКРИПТ КЭШИРОВАНИЯ ---
+# Мы запускаем его здесь, после того как скопировали все файлы
+RUN npm run cache
+
+# Собираем основной проект
 RUN npm run build
 
 # Этап 2: Создание "боевого" образа
 FROM node:18-alpine
 
-# Устанавливаем ТОЛЬКО те системные зависимости, которые нужны для ЗАПУСКА, а не для сборки.
-# Это делает итоговый образ меньше и безопаснее.
+# ... остальная часть файла без изменений ...
 RUN apk add --no-cache cairo jpeg pango giflib
 
 WORKDIR /app
 
-# Копируем только необходимые для запуска файлы из этапа сборки
+# Копируем скомпилированный код
 COPY --from=builder /app/dist ./dist
+# Копируем зависимости
 COPY --from=builder /app/node_modules ./node_modules
+# Копируем package.json
 COPY --from=builder /app/package*.json ./
+
+# --- ВАЖНО: КОПИРУЕМ СОЗДАННЫЙ КЭШ ---
+COPY --from=builder /app/.pdf-cache ./.pdf-cache
 
 # Запускаем приложение
 CMD ["node", "dist/main"]
