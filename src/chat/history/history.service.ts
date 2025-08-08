@@ -100,12 +100,30 @@ export class ChatHistoryService {
     await this.chatMessageRepository.save(modelMessage);
   }
 
-  /**
-   * Старый метод addMessageToHistory больше не нужен, его заменили два новых.
-   * Мы его удаляем.
-   */
-  // async addMessageToHistory(...) { ... } // <-- УДАЛИТЬ ЭТОТ МЕТОД
+    /**
+     * Добавляет пару сообщений (от пользователя и от модели) в историю чата.
+     */
+  async addMessageToHistory(userId: number, userContent: string, modelContent: string): Promise<void> {
+    const user = await this.userRepository.findOneBy({ id: userId });
+    if (!user) {
+      console.error(`Попытка добавить историю для несуществующего пользователя с ID: ${userId}`);
+      return;
+    }
 
+    const userMessage = this.chatMessageRepository.create({
+      user,
+      role: ChatMessageRole.USER,
+      content: userContent,
+    });
+
+    const modelMessage = this.chatMessageRepository.create({
+      user,
+      role: ChatMessageRole.MODEL,
+      content: modelContent,
+    });
+
+    await this.chatMessageRepository.save([userMessage, modelMessage]);
+  }
   /**
    * Получает историю чата для отображения пользователю.
    * @param userId - ID пользователя.

@@ -24,7 +24,7 @@ import { DocxService } from '../documents/docx/docx.service';
 import { UserChatState, User } from '../users/entities/user.entity';
 import * as crypto from 'crypto';
 import { TEMPLATES_REGISTRY } from './templates.registry';
-import { ChatHistoryService } from '../chat/history/history.service';
+
 
 @Controller('ai')
 export class AiController {
@@ -37,7 +37,6 @@ export class AiController {
     private readonly aiService: AiService,
     private readonly usersService: UsersService,
     private readonly docxService: DocxService,
-    private readonly chatHistoryService: ChatHistoryService,
   ) {}
 
   /**
@@ -61,10 +60,6 @@ export class AiController {
       throw new NotFoundException('Пользователь не найден.');
     }
 
-    await this.chatHistoryService.addUserMessageToHistory(userId, generateDto.prompt);
-
-    // === ЛОГИКА УПРАВЛЕНИЯ ДИАЛОГОМ ===
-
     // 1. Если пользователь находится в состоянии "ожидания данных" для документа.
     if (user.chat_state === UserChatState.WAITING_FOR_DATA) {
       // Защита от непредвиденной ошибки состояния.
@@ -87,7 +82,7 @@ export class AiController {
           if (!analysis.templateName) {
             console.warn('AI определил смену документа, но не вернул имя шаблона. Сбрасываем в чат.');
             await this.resetToChatMode(userId);
-            const response = await this.aiService.getAiResponse(generateDto.prompt, userId);
+            const response = await this.aiService.getAiResponse(generateDto.prompt, user); 
             return res.status(200).json({ aiResponse: response.content });
           }
 
@@ -114,8 +109,8 @@ export class AiController {
 
         // 1.3. Пользователь задал общий вопрос или хочет отменить действие.
         case 'general_query':
-          await this.resetToChatMode(userId);
-          const response = await this.aiService.getAiResponse(generateDto.prompt, userId);
+          await this.resetToChatMode(user.id);
+          const response = await this.aiService.getAiResponse(generateDto.prompt, user); 
           return res.status(200).json({ aiResponse: response.content });
       }
     }

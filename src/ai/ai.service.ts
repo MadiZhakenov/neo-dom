@@ -14,6 +14,7 @@ import { GoogleGenerativeAIEmbeddings } from '@langchain/google-genai';
 import { RecursiveCharacterTextSplitter } from 'langchain/text_splitter';
 import { ChatHistoryService } from '../chat/history/history.service';
 import { TEMPLATES_REGISTRY } from './templates.registry';
+import { User } from '../users/entities/user.entity';
 
 // Вспомогательная функция для создания задержки (используется в механизме retry).
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
@@ -199,49 +200,45 @@ export class AiService implements OnModuleInit {
    * @param userId - ID пользователя для доступа к истории чата.
    * @returns Объект с типом намерения ('chat' или 'start_generation') и полезной нагрузкой (ответ или имя шаблона).
    */
-  async getAiResponse(prompt: string, userId: number): Promise<{ type: 'chat' | 'start_generation'; content: any }> {
+  async getAiResponse(prompt: string, user: User): Promise<{ type: 'chat' | 'start_generation'; content: any }> {
     try {
       this.currentLanguage = this.detectLanguage(prompt);
-      const history = await this.chatHistoryService.getHistory(userId);
+      const history = await this.chatHistoryService.getHistory(user.id);
+      
       const intentDetectionPrompt = `
-        Твоя задача - определить намерение пользователя. Варианты намерений:
-        1. "start_generation": Пользователь явно хочет создать, сгенерировать, оформить или заполнить какой-то документ.
-        2. "chat_response": Пользователь задает вопрос, просит консультацию, или его запрос не связан с генерацией документа.
-        Проанализируй запрос и список шаблонов.
-        - Если намерение "start_generation", найди самый подходящий шаблон и верни ТОЛЬКО JSON: {"intent": "start_generation", "templateName": "точное_имя_файла.docx"}
-        - Если "chat_response", верни ТОЛЬКО JSON: {"intent": "chat_response"}
-        Список доступных шаблонов:
+        Твоя задача - определить намерение пользователя с учетом истории чата. Варианты: "start_generation" или "chat_response".
+        - Если пользователь хочет создать документ (ключевые слова: "акт", "форма", "сделай", "заявление"), найди подходящий шаблон и верни: {"intent": "start_generation", "templateName": "имя_файла.docx"}
+        - Во всех остальных случаях (вопрос, приветствие, продолжение диалога) верни: {"intent": "chat_response"}
+        Список шаблонов:
         ${this._templateNames.map(t => `- "${t.humanName}" (файл: ${t.fileName})`).join('\n')}
         Запрос пользователя: "${prompt}"
       `;
+      
       const rawResponse = await this.generateWithRetry(intentDetectionPrompt, history);
       const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
 
-      if (!jsonMatch) {
-        console.warn('[AI Service] Не удалось распознать намерение в формате JSON, перехожу к RAG-ответу.');
-        const answer = await this.getFactualAnswer(prompt, history as Content[], this.currentLanguage);
-        await this.chatHistoryService.addModelMessageToHistory(userId, answer);
-        return { type: 'chat', content: answer };
-      }
-
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (parsed.intent === 'start_generation' && parsed.templateName) {
-        const foundTemplate = this._templateNames.find(t => t.fileName === parsed.templateName.toLowerCase());
-        if (foundTemplate) {
-          const confirmationMessage = this.currentLanguage === 'kz' ? `Әрине, "${foundTemplate.humanName}" құжатын дайындауға көмектесемін.` : `Конечно, я помогу вам подготовить документ: "${foundTemplate.humanName}".`;
-          await this.chatHistoryService.addModelMessageToHistory(userId, confirmationMessage);
-          return { type: 'start_generation', content: foundTemplate.fileName };
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed.intent === 'start_generation' && parsed.templateName) {
+          const foundTemplate = this._templateNames.find(t => t.fileName === parsed.templateName.toLowerCase());
+          if (foundTemplate) {
+            const confirmationMessage = this.currentLanguage === 'kz' ? `Әрине, "${foundTemplate.humanName}" құжатын дайындауға көмектесемін.` : `Конечно, я помогу вам подготовить документ: "${foundTemplate.humanName}".`;
+            await this.chatHistoryService.addMessageToHistory(user.id, prompt, confirmationMessage);
+            return { type: 'start_generation', content: foundTemplate.fileName };
+          }
         }
       }
-
-      // Если намерение 'chat_response' или шаблон не найден, то отвечаем как консультант
-      const answer = await this.getFactualAnswer(prompt, history, this.currentLanguage);
-      await this.chatHistoryService.addModelMessageToHistory(userId, answer);
+      
+      // Если намерение не 'start_generation' или что-то пошло не так,
+      // мы всегда переходим к генерации обычного ответа.
+      const answer = await this.getFactualAnswer(prompt, history as Content[], this.currentLanguage);
+      await this.chatHistoryService.addMessageToHistory(user.id, prompt, answer);
       return { type: 'chat', content: answer };
+
     } catch (error) {
       console.error('[AI Service] Ошибка в getAiResponse:', error);
       const errorMessage = this.currentLanguage === 'kz' ? 'Кешіріңіз, сұранысыңызды өңдеу кезінде ішкі қате пайда болды.' : 'Извините, произошла внутренняя ошибка при обработке вашего запроса.';
-      await this.chatHistoryService.addModelMessageToHistory(userId, errorMessage);
+      await this.chatHistoryService.addMessageToHistory(user.id, prompt, errorMessage);
       return { type: 'chat', content: errorMessage };
     }
   }
