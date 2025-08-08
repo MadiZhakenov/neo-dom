@@ -291,12 +291,21 @@ export class AiService implements OnModuleInit {
   async formatQuestionsForUser(fields: any[], templateName: string): Promise<string> {
     const templateHumanName = TEMPLATES_REGISTRY[templateName.toLowerCase()]?.name || templateName;
     const language = TEMPLATES_REGISTRY[templateName.toLowerCase()]?.language || 'ru';
-    const prompt = `
+
+    const title = language === 'kz'
+      ? `'${templateHumanName}' құжатын толтыру үшін келесі ақпарат қажет:`
+      : `Для заполнения документа '${templateHumanName}' потребуется следующая информация:`;
+
+    
+      const prompt = `
       Ты чат-бот-помощник. Из следующего JSON-массива вопросов сформируй красивый, форматированный текст для пользователя.
-      Текст должен быть вежливым, понятным и содержать примеры для сложных полей.
-      ВАЖНОЕ ПРАВИЛО ЯЗЫКА: Весь текст ответа (заголовки, вопросы, примеры) должен быть на том же языке (${language}), на котором сформулированы "question" в JSON. Не переводи их.
+      Текст должен быть вежливым и понятным.
+      ВАЖНОЕ ПРАВИЛО ЯЗЫКА: Весь текст ответа (вопросы, примеры) должен быть на том же языке (${language}), на котором сформулированы "question" в JSON. Не переводи их.
+      
+      Начни с заголовка: "${title}"
+      
       Не используй Markdown. Не включай вводных слов вроде "Конечно, вот...".
-      Начни с заголовка: "Для заполнения документа '${templateHumanName}' потребуется следующая информация:"
+
       JSON-массив с вопросами:
       ${JSON.stringify(fields, null, 2)}
     `;

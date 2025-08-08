@@ -24,7 +24,7 @@ import { DocxService } from '../documents/docx/docx.service';
 import { UserChatState, User } from '../users/entities/user.entity';
 import * as crypto from 'crypto';
 import { TEMPLATES_REGISTRY } from './templates.registry';
-
+import { ChatHistoryService } from 'src/chat/history/history.service';
 
 @Controller('ai')
 export class AiController {
@@ -37,6 +37,7 @@ export class AiController {
     private readonly aiService: AiService,
     private readonly usersService: UsersService,
     private readonly docxService: DocxService,
+    private readonly chatHistoryService: ChatHistoryService
   ) {}
 
   /**
@@ -116,6 +117,7 @@ export class AiController {
       }
     }
 
+    
     // 2. Логика для обычного режима чата (когда пользователь не заполняет документ).
     const response = await this.aiService.getAiResponse(generateDto.prompt, user);
     console.log(`[Controller] Получен ответ от AiService, отправляю клиенту.`);
@@ -131,21 +133,22 @@ export class AiController {
       // Переводим пользователя в состояние ожидания данных.
       await this.usersService.setChatState(user.id, UserChatState.WAITING_FOR_DATA, templateName, requestId);
 
-      // Отправляем первый набор вопросов.
-      return res.status(200).json({
-        aiResponse: {
-          action: 'collect_data',
-          requestId: requestId,
-          templateName: templateName,
-          questions: formattedQuestions,
-          instructions: templateLanguage === 'kz'
+      const responsePayload = {
+        action: 'collect_data',
+        requestId: requestId,
+        templateName: templateName,
+        questions: formattedQuestions,
+        instructions: templateLanguage === 'kz'
               ? 'Құжат үшін деректерді енгізіңіз. Бас тарту үшін "Болдырмау" деп жазыңыз.'
               : 'Пожалуйста, предоставьте данные для документа. Если хотите отменить, напишите "Отмена".'
-        }
-      });
+        };
+
+      await this.chatHistoryService.addModelMessageToHistory(user.id, JSON.stringify(responsePayload));
+      
+      return res.status(200).json({ aiResponse: responsePayload });
     }
 
-    // Если это обычный ответ в чате, просто отправляем его.
+    await this.chatHistoryService.addModelMessageToHistory(user.id, response.content);
     return res.status(200).json({ aiResponse: response.content });
   }
 
