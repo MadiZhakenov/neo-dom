@@ -103,27 +103,28 @@ export class ChatHistoryService {
     /**
      * Добавляет пару сообщений (от пользователя и от модели) в историю чата.
      */
-  async addMessageToHistory(userId: number, userContent: string, modelContent: string): Promise<void> {
-    const user = await this.userRepository.findOneBy({ id: userId });
-    if (!user) {
-      console.error(`Попытка добавить историю для несуществующего пользователя с ID: ${userId}`);
-      return;
+    async addMessageToHistory(userId: number, userContent: string, modelContent: string): Promise<ChatMessage[]> {
+      const user = await this.userRepository.findOneBy({ id: userId });
+      if (!user) {
+        console.error(`Попытка добавить историю для несуществующего пользователя с ID: ${userId}`);
+        return []; // Возвращаем пустой массив в случае ошибки
+      }
+  
+      const userMessage = this.chatMessageRepository.create({
+        user,
+        role: ChatMessageRole.USER,
+        content: userContent,
+      });
+  
+      const modelMessage = this.chatMessageRepository.create({
+        user,
+        role: ChatMessageRole.MODEL,
+        content: modelContent,
+      });
+  
+      // Теперь метод будет ждать завершения и вернет сохраненные сущности
+      return this.chatMessageRepository.save([userMessage, modelMessage]);
     }
-
-    const userMessage = this.chatMessageRepository.create({
-      user,
-      role: ChatMessageRole.USER,
-      content: userContent,
-    });
-
-    const modelMessage = this.chatMessageRepository.create({
-      user,
-      role: ChatMessageRole.MODEL,
-      content: modelContent,
-    });
-
-    await this.chatMessageRepository.save([userMessage, modelMessage]);
-  }
   /**
    * Получает историю чата для отображения пользователю.
    * @param userId - ID пользователя.
@@ -141,4 +142,5 @@ export class ChatHistoryService {
         createdAt: msg.createdAt,
     }));
   }
+
 }
