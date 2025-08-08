@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ChatMessage, ChatMessageRole } from '../entities/chat-message.entity';
 import { User } from '../../users/entities/user.entity';
+import { Content } from '@google/generative-ai';
 
 @Injectable()
 export class ChatHistoryService {
@@ -19,30 +20,49 @@ export class ChatHistoryService {
   ) {}
 
   /**
-   * Получает последние 10 сообщений из истории чата пользователя.
-   * Форматирует их в вид, понятный для Google Gemini API.
+   * Получает последние сообщения и форматирует их для Google Gemini API.
+   * Обеспечивает правильное чередование ролей.
    * @param userId - ID пользователя.
    * @returns Массив сообщений в формате для AI.
    */
-  async getHistory(userId: number): Promise<{ role: string; parts: { text: string }[] }[]> {
+  async getHistory(userId: number): Promise<Content[]> {
+    // 1. Запрашиваем чуть больше сообщений, чтобы было из чего выбирать
     const messages = await this.chatMessageRepository.find({
       where: { user: { id: userId } },
-      order: { createdAt: 'ASC' },
-      take: 10, // Ограничиваем историю для экономии токенов
+      order: { createdAt: 'DESC' }, // Сортируем от НОВЫХ к СТАРЫМ
+      take: 20, // Берем последние 20
     });
 
-    // Защита от некорректной истории (когда первое сообщение от модели)
-    if (messages.length > 0 && messages[0].role === ChatMessageRole.MODEL) {
-      console.warn(`[History Service] Обнаружена некорректная история: первое сообщение от модели (userId: ${userId}). История будет проигнорирована.`);
+    if (messages.length === 0) {
       return [];
     }
+    
+    // Переворачиваем, чтобы снова были от СТАРЫХ к НОВЫМ
+    const sortedMessages = messages.reverse();
+    
+    // 2. Находим индекс первого сообщения от 'user'
+    let firstUserIndex = -1;
+    for (let i = 0; i < sortedMessages.length; i++) {
+        if (sortedMessages[i].role === ChatMessageRole.USER) {
+            firstUserIndex = i;
+            break;
+        }
+    }
 
-    return messages.map((msg) => ({
+    if (firstUserIndex === -1) {
+        // Если в последних 20 сообщениях нет ни одного от юзера, возвращаем пустую историю
+        return [];
+    }
+
+    // 3. Обрезаем историю, чтобы она начиналась с сообщения пользователя
+    const validHistory = sortedMessages.slice(firstUserIndex);
+
+    // 4. Форматируем в нужный вид
+    return validHistory.map((msg) => ({
       role: msg.role,
       parts: [{ text: msg.content }],
     }));
   }
-
   /**
    * Добавляет пару сообщений (от пользователя и от модели) в историю чата.
    * @param userId - ID пользователя.
