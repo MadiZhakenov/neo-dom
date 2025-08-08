@@ -65,8 +65,8 @@ export class AiController {
     if (user.chat_state === UserChatState.WAITING_FOR_DATA) {
       // Защита от непредвиденной ошибки состояния.
       if (!user.pending_template_name) {
-        console.error(`Ошибка состояния: пользователь ${userId} в WAITING_FOR_DATA, но pending_template_name отсутствует.`);
-        await this.resetToChatMode(userId);
+        console.error(`Ошибка состояния: пользователь ${user.id} в WAITING_FOR_DATA, но pending_template_name отсутствует.`);
+        await this.resetToChatMode(user.id);
         return res.status(500).json({ aiResponse: 'Произошла внутренняя ошибка состояния. Пожалуйста, попробуйте начать заново.' });
       }
 
@@ -82,7 +82,7 @@ export class AiController {
         case 'switch_document':
           if (!analysis.templateName) {
             console.warn('AI определил смену документа, но не вернул имя шаблона. Сбрасываем в чат.');
-            await this.resetToChatMode(userId);
+            await this.resetToChatMode(user.id);
             const response = await this.aiService.getAiResponse(generateDto.prompt, user); 
             return res.status(200).json({ aiResponse: response.content });
           }
@@ -93,7 +93,7 @@ export class AiController {
           const questions = await this.aiService.formatQuestionsForUser(fields, newTemplateName);
           
           // Обновляем состояние пользователя, меняя шаблон, но сохраняя ID запроса.
-          await this.usersService.setChatState(userId, UserChatState.WAITING_FOR_DATA, newTemplateName, user.pending_request_id);
+          await this.usersService.setChatState(user.id, UserChatState.WAITING_FOR_DATA, newTemplateName, user.pending_request_id);
 
           // Отправляем пользователю новые вопросы и локализованные инструкции.
           return res.status(200).json({
@@ -117,7 +117,7 @@ export class AiController {
     }
 
     // 2. Логика для обычного режима чата (когда пользователь не заполняет документ).
-    const response = await this.aiService.getAiResponse(generateDto.prompt, userId);
+    const response = await this.aiService.getAiResponse(generateDto.prompt, user);
     console.log(`[Controller] Получен ответ от AiService, отправляю клиенту.`);
 
     // Если AI определил, что нужно начать генерацию документа.
@@ -129,7 +129,7 @@ export class AiController {
       const requestId = crypto.randomBytes(16).toString('hex');
 
       // Переводим пользователя в состояние ожидания данных.
-      await this.usersService.setChatState(userId, UserChatState.WAITING_FOR_DATA, templateName, requestId);
+      await this.usersService.setChatState(user.id, UserChatState.WAITING_FOR_DATA, templateName, requestId);
 
       // Отправляем первый набор вопросов.
       return res.status(200).json({
