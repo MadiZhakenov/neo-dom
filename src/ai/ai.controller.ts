@@ -24,6 +24,7 @@ import { DocxService } from '../documents/docx/docx.service';
 import { UserChatState, User } from '../users/entities/user.entity';
 import * as crypto from 'crypto';
 import { TEMPLATES_REGISTRY } from './templates.registry';
+import { ChatHistoryService } from '../chat/history/history.service';
 
 @Controller('ai')
 export class AiController {
@@ -36,6 +37,7 @@ export class AiController {
     private readonly aiService: AiService,
     private readonly usersService: UsersService,
     private readonly docxService: DocxService,
+    private readonly chatHistoryService: ChatHistoryService,
   ) {}
 
   /**
@@ -58,6 +60,8 @@ export class AiController {
     if (!user) {
       throw new NotFoundException('Пользователь не найден.');
     }
+
+    await this.chatHistoryService.addUserMessageToHistory(userId, generateDto.prompt);
 
     // === ЛОГИКА УПРАВЛЕНИЯ ДИАЛОГОМ ===
 

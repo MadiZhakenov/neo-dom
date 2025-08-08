@@ -220,7 +220,7 @@ export class AiService implements OnModuleInit {
       if (!jsonMatch) {
         console.warn('[AI Service] Не удалось распознать намерение в формате JSON, перехожу к RAG-ответу.');
         const answer = await this.getFactualAnswer(prompt, history as Content[], this.currentLanguage);
-        await this.chatHistoryService.addMessageToHistory(userId, prompt, answer);
+        await this.chatHistoryService.addModelMessageToHistory(userId, answer);
         return { type: 'chat', content: answer };
       }
 
@@ -229,19 +229,19 @@ export class AiService implements OnModuleInit {
         const foundTemplate = this._templateNames.find(t => t.fileName === parsed.templateName.toLowerCase());
         if (foundTemplate) {
           const confirmationMessage = this.currentLanguage === 'kz' ? `Әрине, "${foundTemplate.humanName}" құжатын дайындауға көмектесемін.` : `Конечно, я помогу вам подготовить документ: "${foundTemplate.humanName}".`;
-          await this.chatHistoryService.addMessageToHistory(userId, prompt, confirmationMessage);
+          await this.chatHistoryService.addModelMessageToHistory(userId, confirmationMessage);
           return { type: 'start_generation', content: foundTemplate.fileName };
         }
       }
 
       // Если намерение 'chat_response' или шаблон не найден, то отвечаем как консультант
       const answer = await this.getFactualAnswer(prompt, history, this.currentLanguage);
-      await this.chatHistoryService.addMessageToHistory(userId, prompt, answer);
+      await this.chatHistoryService.addModelMessageToHistory(userId, answer);
       return { type: 'chat', content: answer };
     } catch (error) {
       console.error('[AI Service] Ошибка в getAiResponse:', error);
       const errorMessage = this.currentLanguage === 'kz' ? 'Кешіріңіз, сұранысыңызды өңдеу кезінде ішкі қате пайда болды.' : 'Извините, произошла внутренняя ошибка при обработке вашего запроса.';
-      await this.chatHistoryService.addMessageToHistory(userId, prompt, errorMessage);
+      await this.chatHistoryService.addModelMessageToHistory(userId, errorMessage);
       return { type: 'chat', content: errorMessage };
     }
   }

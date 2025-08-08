@@ -26,21 +26,18 @@ export class ChatHistoryService {
    * @returns Массив сообщений в формате для AI.
    */
   async getHistory(userId: number): Promise<Content[]> {
-    // 1. Запрашиваем чуть больше сообщений, чтобы было из чего выбирать
     const messages = await this.chatMessageRepository.find({
       where: { user: { id: userId } },
-      order: { createdAt: 'DESC' }, // Сортируем от НОВЫХ к СТАРЫМ
-      take: 20, // Берем последние 20
+      order: { createdAt: 'DESC' },
+      take: 20,
     });
 
     if (messages.length === 0) {
       return [];
     }
     
-    // Переворачиваем, чтобы снова были от СТАРЫХ к НОВЫМ
     const sortedMessages = messages.reverse();
     
-    // 2. Находим индекс первого сообщения от 'user'
     let firstUserIndex = -1;
     for (let i = 0; i < sortedMessages.length; i++) {
         if (sortedMessages[i].role === ChatMessageRole.USER) {
@@ -50,46 +47,64 @@ export class ChatHistoryService {
     }
 
     if (firstUserIndex === -1) {
-        // Если в последних 20 сообщениях нет ни одного от юзера, возвращаем пустую историю
         return [];
     }
 
-    // 3. Обрезаем историю, чтобы она начиналась с сообщения пользователя
     const validHistory = sortedMessages.slice(firstUserIndex);
 
-    // 4. Форматируем в нужный вид
     return validHistory.map((msg) => ({
-      role: msg.role,
+      role: msg.role as 'user' | 'model',
       parts: [{ text: msg.content }],
     }));
   }
+  
+  // --- НОВЫЕ И ИЗМЕНЕННЫЕ МЕТОДЫ ---
+
   /**
-   * Добавляет пару сообщений (от пользователя и от модели) в историю чата.
+   * Сохраняет ТОЛЬКО сообщение пользователя в историю.
    * @param userId - ID пользователя.
-   * @param userContent - Текст сообщения от пользователя.
-   * @param modelContent - Текст ответа от AI.
+   * @param userContent - Текст сообщения.
    */
-  async addMessageToHistory(userId: number, userContent: string, modelContent: string): Promise<void> {
+  async addUserMessageToHistory(userId: number, userContent: string): Promise<void> {
     const user = await this.userRepository.findOneBy({ id: userId });
     if (!user) {
-      console.error(`Попытка добавить историю для несуществующего пользователя с ID: ${userId}`);
+      console.error(`addUserMessageToHistory: Пользователь с ID ${userId} не найден.`);
       return;
     }
 
     const userMessage = this.chatMessageRepository.create({
-      user: user,
+      user,
       role: ChatMessageRole.USER,
       content: userContent,
     });
+    await this.chatMessageRepository.save(userMessage);
+  }
 
+  /**
+   * Сохраняет ТОЛЬКО ответ модели в историю.
+   * @param userId - ID пользователя.
+   * @param modelContent - Текст ответа AI.
+   */
+  async addModelMessageToHistory(userId: number, modelContent: string): Promise<void> {
+    const user = await this.userRepository.findOneBy({ id: userId });
+    if (!user) {
+      console.error(`addModelMessageToHistory: Пользователь с ID ${userId} не найден.`);
+      return;
+    }
+    
     const modelMessage = this.chatMessageRepository.create({
-      user: user,
+      user,
       role: ChatMessageRole.MODEL,
       content: modelContent,
     });
-
-    await this.chatMessageRepository.save([userMessage, modelMessage]);
+    await this.chatMessageRepository.save(modelMessage);
   }
+
+  /**
+   * Старый метод addMessageToHistory больше не нужен, его заменили два новых.
+   * Мы его удаляем.
+   */
+  // async addMessageToHistory(...) { ... } // <-- УДАЛИТЬ ЭТОТ МЕТОД
 
   /**
    * Получает историю чата для отображения пользователю.
@@ -99,11 +114,9 @@ export class ChatHistoryService {
     const messages = await this.chatMessageRepository.find({
       where: { user: { id: userId } },
       order: { createdAt: 'ASC' },
-      // Можно отдать больше сообщений для истории
       take: 50, 
     });
 
-    // Просто возвращаем массив сообщений
     return messages.map(msg => ({
         role: msg.role,
         content: msg.content,
