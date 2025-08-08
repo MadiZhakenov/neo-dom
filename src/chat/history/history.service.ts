@@ -19,44 +19,38 @@ export class ChatHistoryService {
     private readonly userRepository: Repository<User>,
   ) {}
 
-  /**
+/**
    * Получает последние сообщения и форматирует их для Google Gemini API.
-   * Обеспечивает правильное чередование ролей.
+   * Обеспечивает правильное чередование ролей, чтобы история всегда начиналась с 'user'.
    * @param userId - ID пользователя.
    * @returns Массив сообщений в формате для AI.
    */
-  async getHistory(userId: number): Promise<Content[]> {
-    const messages = await this.chatMessageRepository.find({
-      where: { user: { id: userId } },
-      order: { createdAt: 'DESC' },
-      take: 20,
-    });
+async getHistory(userId: number): Promise<Content[]> {
+  const messages = await this.chatMessageRepository.find({
+    where: { user: { id: userId } },
+    order: { createdAt: 'DESC' },
+    take: 20, // Берем с запасом
+  });
 
-    if (messages.length === 0) {
-      return [];
-    }
-    
-    const sortedMessages = messages.reverse();
-    
-    let firstUserIndex = -1;
-    for (let i = 0; i < sortedMessages.length; i++) {
-        if (sortedMessages[i].role === ChatMessageRole.USER) {
-            firstUserIndex = i;
-            break;
-        }
-    }
-
-    if (firstUserIndex === -1) {
-        return [];
-    }
-
-    const validHistory = sortedMessages.slice(firstUserIndex);
-
-    return validHistory.map((msg) => ({
-      role: msg.role as 'user' | 'model',
-      parts: [{ text: msg.content }],
-    }));
+  if (messages.length === 0) {
+    return [];
   }
+  
+  const sortedMessages = messages.reverse();
+  
+  const firstUserIndex = sortedMessages.findIndex(msg => msg.role === ChatMessageRole.USER);
+
+  if (firstUserIndex === -1) {
+    return [];
+  }
+
+  const validHistory = sortedMessages.slice(firstUserIndex);
+
+  return validHistory.map((msg) => ({
+    role: msg.role as 'user' | 'model',
+    parts: [{ text: msg.content }],
+  }));
+}
   
   // --- НОВЫЕ И ИЗМЕНЕННЫЕ МЕТОДЫ ---
 
@@ -100,50 +94,50 @@ export class ChatHistoryService {
     await this.chatMessageRepository.save(modelMessage);
   }
 
-    /**
-     * Добавляет пару сообщений (от пользователя и от модели) в историю чата.
-     */
-    async addMessageToHistory(userId: number, userContent: string, modelContent: string): Promise<ChatMessage[]> {
-      console.log(`[HistoryService] Получен запрос на сохранение для userId: ${userId}`);
-      const user = await this.userRepository.findOneBy({ id: userId });
-      if (!user) {
-        console.error(`Попытка добавить историю для несуществующего пользователя с ID: ${userId}`);
-        return []; // Возвращаем пустой массив в случае ошибки
-      }
-  
-      const userMessage = this.chatMessageRepository.create({
-        user,
-        role: ChatMessageRole.USER,
-        content: userContent,
-      });
-  
-      const modelMessage = this.chatMessageRepository.create({
-        user,
-        role: ChatMessageRole.MODEL,
-        content: modelContent,
-      });
-  
-      // Теперь метод будет ждать завершения и вернет сохраненные сущности
-      await this.chatMessageRepository.save([userMessage, modelMessage]);
-      console.log(`[HistoryService] Сообщения для userId: ${userId} успешно сохранены.`);
-      return this.chatMessageRepository.save([userMessage, modelMessage]);
-    }
-  /**
-   * Получает историю чата для отображения пользователю.
+/**
+   * Добавляет пару сообщений (от пользователя и от модели) в историю чата.
+   * @param userId - ID пользователя.
+   * @param userContent - Текст сообщения от пользователя.
+   * @param modelContent - Текст ответа от AI.
+   */
+async addMessageToHistory(userId: number, userContent: string, modelContent: string): Promise<void> {
+  const user = await this.userRepository.findOneBy({ id: userId });
+  if (!user) {
+    console.error(`Попытка добавить историю для несуществующего пользователя с ID: ${userId}`);
+    return;
+  }
+
+  const userMessage = this.chatMessageRepository.create({
+    user,
+    role: ChatMessageRole.USER,
+    content: userContent,
+  });
+
+  const modelMessage = this.chatMessageRepository.create({
+    user,
+    role: ChatMessageRole.MODEL,
+    content: modelContent,
+  });
+
+  await this.chatMessageRepository.save([userMessage, modelMessage]);
+}
+
+/**
+   * Получает историю чата для отображения пользователю на фронтенде.
    * @param userId - ID пользователя.
    */
-  async getHistoryForUser(userId: number) {
-    const messages = await this.chatMessageRepository.find({
-      where: { user: { id: userId } },
-      order: { createdAt: 'ASC' },
-      take: 50, 
-    });
+async getHistoryForUser(userId: number) {
+  const messages = await this.chatMessageRepository.find({
+    where: { user: { id: userId } },
+    order: { createdAt: 'ASC' },
+    take: 50, 
+  });
 
-    return messages.map(msg => ({
-        role: msg.role,
-        content: msg.content,
-        createdAt: msg.createdAt,
-    }));
-  }
+  return messages.map(msg => ({
+      role: msg.role,
+      content: msg.content,
+      createdAt: msg.createdAt,
+  }));
+}
 
 }

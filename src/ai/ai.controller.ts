@@ -119,7 +119,7 @@ export class AiController {
     // 2. Логика для обычного режима чата (когда пользователь не заполняет документ).
     const response = await this.aiService.getAiResponse(generateDto.prompt, userId);
     console.log(`[Controller] Получен ответ от AiService, отправляю клиенту.`);
-    
+
     // Если AI определил, что нужно начать генерацию документа.
     if (response.type === 'start_generation') {
       const templateName = response.content;
