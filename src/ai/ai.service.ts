@@ -202,6 +202,7 @@ export class AiService implements OnModuleInit {
    */
   async getAiResponse(prompt: string, user: User): Promise<{ type: 'chat' | 'start_generation'; content: any }> {
     try {
+      console.log(`[AiService] Начинаю обработку для userId: ${user.id}`); 
       this.currentLanguage = this.detectLanguage(prompt);
       const history = await this.chatHistoryService.getHistory(user.id);
       
@@ -232,12 +233,15 @@ export class AiService implements OnModuleInit {
       // Если намерение не 'start_generation' или что-то пошло не так,
       // мы всегда переходим к генерации обычного ответа.
       const answer = await this.getFactualAnswer(prompt, history as Content[], this.currentLanguage);
+      console.log(`[AiService] Ответ сгенерирован. Вызываю addMessageToHistory...`);
       await this.chatHistoryService.addMessageToHistory(user.id, prompt, answer);
+      console.log(`[AiService] addMessageToHistory завершен.`);
       return { type: 'chat', content: answer };
 
     } catch (error) {
       console.error('[AI Service] Ошибка в getAiResponse:', error);
       const errorMessage = this.currentLanguage === 'kz' ? 'Кешіріңіз, сұранысыңызды өңдеу кезінде ішкі қате пайда болды.' : 'Извините, произошла внутренняя ошибка при обработке вашего запроса.';
+      console.log(`[AiService] Произошла ошибка. Вызываю addMessageToHistory с сообщением об ошибке...`);
       await this.chatHistoryService.addMessageToHistory(user.id, prompt, errorMessage);
       return { type: 'chat', content: errorMessage };
     }
