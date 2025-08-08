@@ -162,20 +162,45 @@ export class AiService implements OnModuleInit {
    * @returns Фактический ответ от AI, основанный на документах.
    */
   private async getFactualAnswer(prompt: string, history: Content[], language: 'ru' | 'kz'): Promise<string> {
-    if (!this.vectorStore) { throw new Error('База знаний не инициализирована.'); }
+    if (!this.vectorStore) { 
+      // Если базы знаний нет, отвечаем как обычный ассистент
+      return this.generateCreativeAnswer(prompt, history, language);
+    }
     const relevantDocs = await this.vectorStore.similaritySearch(prompt, 3);
     const context = relevantDocs.map(doc => `Из документа ${doc.metadata.source}:\n${doc.pageContent}`).join('\n\n---\n\n');
     const finalPrompt = `
-      Твоя роль - 'Цифровой юрист-консультант' для ОСИ в Казахстане. Отвечай строго на основе предоставленного ниже контекста из документов.
-      ВАЖНОЕ ПРАВИЛО ЯЗЫКА: Отвечай на том же языке (${language}), на котором задан "Мой вопрос".
-      Если в контексте нет ответа, вежливо сообщи об этом. Не отвечай на вопросы не по теме.
-      Контекст из документов для ответа:
-      ---
-      ${context}
-      ---
-      Мой вопрос: "${prompt}"
+    Твоя роль - 'Цифровой юрист-консультант' для ОСИ в Казахстане. Твоя главная задача - помочь пользователю.
+
+        ПЛАН ДЕЙСТВИЙ:
+        1. Сначала постарайся найти точный ответ на "Вопрос пользователя" в предоставленном "Контексте из документов".
+        2. Если точный ответ найден, предоставь его, ссылаясь на документ.
+        3. **Если в контексте нет прямого ответа, НЕ ГОВОРИ "Я не нашел ответ".** Вместо этого:
+          a. Признай, что в документах нет точной информации.
+          b. Основываясь на теме вопроса, предоставь **общие рекомендации** или предположи, какой документ мог бы понадобиться пользователю. Будь полезным ассистентом.
+        
+        ВАЖНОЕ ПРАВИЛО ЯЗЫКА: Отвечай на том же языке (${language}), на котором задан "Вопрос пользователя".
+
+        Контекст из документов:
+        ---
+        ${context}
+        ---
+        Вопрос пользователя: "${prompt}"
+      `;
+      return this.generateWithRetry(finalPrompt, history);
+    }
+
+    /**
+   * Этот новый метод будет генерировать творческие ответы, когда нет RAG-контекста.
+   */
+  private async generateCreativeAnswer(prompt: string, history: Content[], language: 'ru' | 'kz'): Promise<string> {
+    const creativePrompt = `
+      Твоя роль - дружелюбный и полезный AI-ассистент для жителей и управляющих ОСИ в Казахстане.
+      Ответь на вопрос пользователя кратко и по делу.
+      ВАЖНОЕ ПРАВИЛО ЯЗЫКА: Отвечай на том же языке (${language}), на котором задан "Вопрос пользователя".
+      Вопрос: "${prompt}"
     `;
-    return this.generateWithRetry(finalPrompt, history);
+    // Мы можем в будущем настроить более высокую "температуру" для этой модели
+    return this.generateWithRetry(creativePrompt, history);
   }
 
   /**
@@ -199,7 +224,7 @@ export class AiService implements OnModuleInit {
         ${this._templateNames.map(t => `- "${t.humanName}" (файл: ${t.fileName})`).join('\n')}
         Запрос пользователя: "${prompt}"
       `;
-      const rawResponse = await this.generateWithRetry(intentDetectionPrompt);
+      const rawResponse = await this.generateWithRetry(intentDetectionPrompt, history);
       const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
 
       if (!jsonMatch) {

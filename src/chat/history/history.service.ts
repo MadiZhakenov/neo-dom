@@ -70,4 +70,24 @@ export class ChatHistoryService {
 
     await this.chatMessageRepository.save([userMessage, modelMessage]);
   }
+
+  /**
+   * Получает историю чата для отображения пользователю.
+   * @param userId - ID пользователя.
+   */
+  async getHistoryForUser(userId: number) {
+    const messages = await this.chatMessageRepository.find({
+      where: { user: { id: userId } },
+      order: { createdAt: 'ASC' },
+      // Можно отдать больше сообщений для истории
+      take: 50, 
+    });
+
+    // Просто возвращаем массив сообщений
+    return messages.map(msg => ({
+        role: msg.role,
+        content: msg.content,
+        createdAt: msg.createdAt,
+    }));
+  }
 }
