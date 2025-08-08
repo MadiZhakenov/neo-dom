@@ -125,9 +125,14 @@ export class AiService implements OnModuleInit {
    * @returns Текстовый ответ от AI.
    */
   private async generateWithRetry(prompt: any, history: Content[] = [], retries = 3): Promise<string> {
+    const model = history.length > 0 ? this.primaryModel : this.fallbackModel;
     for (let i = 0; i < retries; i++) {
       try {
-        const chatSession = this.primaryModel.startChat({ history });
+         // 1. Начинаем сессию, передавая всю предыдущую историю
+         const chatSession = model.startChat({
+          history: history,
+        });
+        // 2. Отправляем ТОЛЬКО новый промпт, без истории
         const result = await chatSession.sendMessage(prompt);
         return result.response.text();
       } catch (error) {
@@ -146,6 +151,7 @@ export class AiService implements OnModuleInit {
             throw fallbackError;
           }
         } else {
+          console.error('[AI Service] Неперехватываемая ошибка от Gemini API:', error);
           throw error;
         }
       }
