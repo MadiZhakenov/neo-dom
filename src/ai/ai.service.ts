@@ -317,6 +317,7 @@ export class AiService implements OnModuleInit {
    * @param userAnswersPrompt - Текст ответа пользователя, содержащий данные.
    * @param templateName - Имя файла шаблона, для которого извлекаются данные.
    * @returns Объект с флагом isComplete, извлеченными данными (data) и списком недостающих полей (missingFields).
+   * 
    */
   async extractDataForDocx(userAnswersPrompt: string, templateName: string): Promise<{ data: any; isComplete: boolean; missingFields?: { tag: string; question: string }[] }> {
     const normalizedTemplateName = templateName.toLowerCase();
