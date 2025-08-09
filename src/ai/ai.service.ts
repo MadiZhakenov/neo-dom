@@ -209,6 +209,7 @@ export class AiService implements OnModuleInit {
         Твоя задача - определить намерение пользователя с учетом истории чата. Варианты: "start_generation" или "chat_response".
         - Если пользователь хочет создать документ (ключевые слова: "акт", "форма", "сделай", "заявление"), найди подходящий шаблон и верни: {"intent": "start_generation", "templateName": "имя_файла.docx"}
         - Во всех остальных случаях (вопрос, приветствие, продолжение диалога) верни: {"intent": "chat_response"}
+        ЗАПРЕЩЕНО возвращать что-либо, кроме JSON.
         Список шаблонов:
         ${this._templateNames.map(t => `- "${t.humanName}" (файл: ${t.fileName})`).join('\n')}
         Запрос пользователя: "${prompt}"
@@ -232,16 +233,11 @@ export class AiService implements OnModuleInit {
       // Если намерение не 'start_generation' или что-то пошло не так,
       // мы всегда переходим к генерации обычного ответа.
       const answer = await this.getFactualAnswer(prompt, history as Content[], languageHint);
-      console.log(`[AiService] Ответ сгенерирован. Вызываю addMessageToHistory...`);
-      await this.chatHistoryService.addMessageToHistory(user.id, prompt, answer);
-      console.log(`[AiService] addMessageToHistory завершен.`);
       return { type: 'chat', content: answer };
 
     } catch (error) {
       console.error('[AI Service] Ошибка в getAiResponse:', error);
       const errorMessage = this.currentLanguage === 'kz' ? 'Кешіріңіз, сұранысыңызды өңдеу кезінде ішкі қате пайда болды.' : 'Извините, произошла внутренняя ошибка при обработке вашего запроса.';
-      console.log(`[AiService] Произошла ошибка. Вызываю addMessageToHistory с сообщением об ошибке...`);
-      await this.chatHistoryService.addMessageToHistory(user.id, prompt, errorMessage);
       return { type: 'chat', content: errorMessage };
     }
   }

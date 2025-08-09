@@ -119,7 +119,7 @@ export class AiController {
 
     
     // 2. Логика для обычного режима чата (когда пользователь не заполняет документ).
-    const response = await this.aiService.getAiResponse(generateDto.prompt, user);
+    const response = await this.aiService.getAiResponse(generateDto.prompt, userId);
     console.log(`[Controller] Получен ответ от AiService, отправляю клиенту.`);
 
     // Если AI определил, что нужно начать генерацию документа.
@@ -138,18 +138,19 @@ export class AiController {
         requestId: requestId,
         templateName: templateName,
         questions: formattedQuestions,
-        instructions: templateLanguage === 'kz'
-              ? 'Құжат үшін деректерді енгізіңіз. Бас тарту үшін "Болдырмау" деп жазыңыз.'
-              : 'Пожалуйста, предоставьте данные для документа. Если хотите отменить, напишите "Отмена".'
-        };
+        instructions: this.aiService.detectLanguage(generateDto.prompt) === 'kz'
+            ? 'Құжат үшін деректерді енгізіңіз. Бас тарту үшін "Болдырмау" деп жазыңыз.'
+            : 'Пожалуйста, предоставьте данные для документа. Если хотите отменить, напишите "Отмена".'
+      };
 
-      await this.chatHistoryService.addModelMessageToHistory(user.id, JSON.stringify(responsePayload));
-      
+      await this.chatHistoryService.addMessageToHistory(userId, generateDto.prompt, JSON.stringify(responsePayload));
       return res.status(200).json({ aiResponse: responsePayload });
     }
-
-    await this.chatHistoryService.addModelMessageToHistory(user.id, response.content);
-    return res.status(200).json({ aiResponse: response.content });
+    else{
+      const chatResponse = response.content;
+      await this.chatHistoryService.addMessageToHistory(userId, generateDto.prompt, chatResponse);
+      return res.status(200).json({ aiResponse: chatResponse });
+    }
   }
 
   /**
