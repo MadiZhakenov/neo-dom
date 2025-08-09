@@ -125,9 +125,7 @@ export class AiController {
       return res.status(200).json({ aiResponse: responsePayload });
     }
     else{
-      const chatResponse = response.content;
-      await this.chatHistoryService.addMessageToHistory(userId, generateDto.prompt, chatResponse);
-      return res.status(200).json({ aiResponse: chatResponse });
+      return res.status(200).json({ aiResponse: response.content });
     }
   }
 
