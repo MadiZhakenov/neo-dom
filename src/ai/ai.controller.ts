@@ -192,18 +192,56 @@ export class AiController {
 
       // Если AI счел, что данных не хватает, запрашиваем их снова.
       if (!isComplete) {
+        
+        // --- НОВАЯ УМНАЯ ЛОГИКА ---
+        // Получаем ПОЛНУЮ историю чата
+        const history = await this.chatHistoryService.getHistoryForUser(user.id);
+        // Находим последнее сообщение от МОДЕЛИ
+        const lastModelMessage = history.filter(m => m.role === 'model').pop();
+
+        // Проверяем, что последнее сообщение существует
+        if (lastModelMessage) {
+            try {
+              // Пытаемся распарсить последнее сообщение как JSON
+              const lastResponsePayload = JSON.parse(lastModelMessage.content);
+              // Если это был JSON с вопросами, то просто вежливо повторяем его.
+              if (lastResponsePayload && lastResponsePayload.action === 'collect_data') {
+                const lang = this.aiService.detectLanguage(generateDto.prompt);
+                const politeReminder = lang === 'kz' 
+                  ? 'Мен сізден әлі де келесі ақпаратты күтіп отырмын:\n\n' 
+                  : 'Я все еще ожидаю от вас информацию по следующим пунктам:\n\n';
+                
+                // Создаем новый payload, чтобы не изменять старый
+                const reminderPayload = {
+                  ...lastResponsePayload,
+                  questions: `${politeReminder}${lastResponsePayload.questions}`
+                };
+                
+                // Сохраняем в историю наше новое сообщение-напоминание
+                await this.chatHistoryService.addMessageToHistory(user.id, generateDto.prompt, JSON.stringify(reminderPayload));
+                return res.status(200).json({ aiResponse: reminderPayload });
+              }
+            } catch (e) {
+              // Если последнее сообщение не было JSON, значит, это был обычный чат,
+              // и мы просто продолжаем выполнение кода ниже.
+              console.log('[Controller] Последнее сообщение модели не было JSON, генерируем новый список вопросов.');
+            }
+        }
+        // Если AI смог определить, каких полей не хватает, генерируем новое сообщение.
+        // Этот блок сработает, если AI вернул isComplete: false с конкретными missingFields,
+        // или если последнее сообщение в истории не было JSON-запросом данных.
         const templateLanguage = TEMPLATES_REGISTRY[user.pending_template_name!]?.language || 'ru';
         const missingQuestions = missingFields.map(f => f.question).join('\n- ');
-        const responseMessage = templateLanguage === 'kz'
-          ? `Құжатты рәсімдеуді аяқтау үшін келесі ақпаратты беріңіз:\n\n- ${missingQuestions}\n\nБарлық деректерді КӨРСЕТІЛГЕН форматта БІР хабарламамен жіберіңіз.`
-          : `Для завершения оформления документа, пожалуйста, предоставьте следующую информацию:\n\n- ${missingQuestions}\n\nОтправьте все данные ОДНИМ сообщением в указанном формате.`;
+        const responseMessage = `Для завершения оформления документа, пожалуйста, предоставьте следующую информацию:\n\n- ${missingQuestions}`;
+        
+        await this.chatHistoryService.addMessageToHistory(user.id, generateDto.prompt, responseMessage);
         return res.status(200).json({
           aiResponse: responseMessage,
           action: 'collect_data',
           templateName: user.pending_template_name,
         });
+
       }
-      
       // 3. ПРОГРАММНОЕ ОБОГАЩЕНИЕ ДАННЫХ (добавление нумерации для таблиц)
       if (data && Array.isArray(data.docs)) {
         data.docs.forEach((doc, i) => {
