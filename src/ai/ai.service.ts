@@ -337,22 +337,25 @@ export class AiService implements OnModuleInit {
           if (parsed.intent === 'start_generation' && parsed.templateName) {
             const foundTemplate = this._templateNames.find(t => t.fileName === parsed.templateName.toLowerCase());
             if (foundTemplate) {
-              const confirmationMessage = `Начинаю подготовку документа: "${foundTemplate.humanName}".`;
-              await this.chatHistoryService.addMessageToHistory(userId, prompt, confirmationMessage);
+              // const confirmationMessage = `Начинаю подготовку документа: "${foundTemplate.humanName}".`;
+              // await this.chatHistoryService.addMessageToHistory(userId, prompt, confirmationMessage);
               return { type: 'start_generation', content: foundTemplate.fileName };
             }
           }
         } catch (e) { /* Игнорируем ошибку парсинга, считаем это текстом */ }
       }
       
-      // Если это не JSON для генерации, значит, это обычный текстовый ответ.
-      await this.chatHistoryService.addMessageToHistory(userId, prompt, rawResponse);
-      return { type: 'chat', content: rawResponse };
+      // // Если это не JSON для генерации, значит, это обычный текстовый ответ.
+      // await this.chatHistoryService.addMessageToHistory(userId, prompt, rawResponse);
+      // return { type: 'chat', content: rawResponse };
+      const answer = await this.getFactualAnswer(prompt, history, language);
+      // --- ИСПРАВЛЕНИЕ: НИЧЕГО НЕ СОХРАНЯЕМ, ПРОСТО ВОЗВРАЩАЕМ ---
+      return { type: 'chat', content: answer };
 
     } catch (error) {
       console.error('[AI Service] Критическая ошибка в getAiResponse:', error);
       const errorMessage = 'Извините, произошла внутренняя ошибка.';
-      await this.chatHistoryService.addMessageToHistory(userId, prompt, errorMessage);
+      // await this.chatHistoryService.addMessageToHistory(userId, prompt, errorMessage);
       return { type: 'chat', content: errorMessage };
     }
   }

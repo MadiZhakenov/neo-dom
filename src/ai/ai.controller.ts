@@ -147,7 +147,14 @@ export class AiController {
       return res.status(200).json({ aiResponse: responsePayload });
     }
     else{
-      return res.status(200).json({ aiResponse: response.content });
+      // return res.status(200).json({ aiResponse: response.content });
+      // Это обычный текстовый ответ.
+      const chatResponse = response.content;
+      
+      // --- ПРАВИЛЬНО: Сохраняем в историю текстовый ответ ---
+      await this.chatHistoryService.addMessageToHistory(userId, generateDto.prompt, chatResponse);
+      
+      return res.status(200).json({ aiResponse: chatResponse });
     }
   }
 
