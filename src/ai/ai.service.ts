@@ -232,11 +232,16 @@ export class AiService implements OnModuleInit {
       // Если намерение не 'start_generation' или что-то пошло не так,
       // мы всегда переходим к генерации обычного ответа.
       const answer = await this.getFactualAnswer(prompt, history as Content[], languageHint);
+      console.log(`[AiService] Ответ сгенерирован. Вызываю addMessageToHistory...`);
+      await this.chatHistoryService.addMessageToHistory(user.id, prompt, answer);
+      console.log(`[AiService] addMessageToHistory завершен.`);
       return { type: 'chat', content: answer };
 
     } catch (error) {
       console.error('[AI Service] Ошибка в getAiResponse:', error);
       const errorMessage = this.currentLanguage === 'kz' ? 'Кешіріңіз, сұранысыңызды өңдеу кезінде ішкі қате пайда болды.' : 'Извините, произошла внутренняя ошибка при обработке вашего запроса.';
+      console.log(`[AiService] Произошла ошибка. Вызываю addMessageToHistory с сообщением об ошибке...`);
+      await this.chatHistoryService.addMessageToHistory(user.id, prompt, errorMessage);
       return { type: 'chat', content: errorMessage };
     }
   }
@@ -283,21 +288,14 @@ export class AiService implements OnModuleInit {
    * @param templateName - Имя файла шаблона для получения его "человеческого" названия.
    * @returns Единая форматированная строка с вопросами.
    */
-  async formatQuestionsForUser(fields: any[], templateName: string, isSwitching: boolean = false): Promise<string> {
+  async formatQuestionsForUser(fields: any[], templateName: string): Promise<string> {
     const templateHumanName = TEMPLATES_REGISTRY[templateName.toLowerCase()]?.name || templateName;
     const language = TEMPLATES_REGISTRY[templateName.toLowerCase()]?.language || 'ru';
 
     const title = language === 'kz'
       ? `'${templateHumanName}' құжатын толтыру үшін келесі ақпарат қажет:`
-      : `Для заполнения документа '${templateHumanName}' потребуется следующая  информация:`;
+      : `Для заполнения документа '${templateHumanName}' потребуется следующая информация:`;
 
-     // Формируем вводную часть промпта в зависимости от флага isSwitching
-     let introductionPrompt = `Начни с заголовка: "Для заполнения документа '${templateHumanName}' потребуется следующая информация:"`;
-     if (isSwitching) {
-       introductionPrompt = language === 'kz'
-         ? `Начни с вежливого сообщения о том, что ты переключился на документ '${templateHumanName}', а затем предоставь список вопросов.`
-         : `Начни с вежливого сообщения о том, что ты переключился на документ '${templateHumanName}', а затем предоставь список вопросов.`;
-     }
     
       const prompt = `
       Ты чат-бот-помощник. Из следующего JSON-массива вопросов сформируй красивый, форматированный текст для пользователя.
@@ -319,7 +317,6 @@ export class AiService implements OnModuleInit {
    * @param userAnswersPrompt - Текст ответа пользователя, содержащий данные.
    * @param templateName - Имя файла шаблона, для которого извлекаются данные.
    * @returns Объект с флагом isComplete, извлеченными данными (data) и списком недостающих полей (missingFields).
-   * 
    */
   async extractDataForDocx(userAnswersPrompt: string, templateName: string): Promise<{ data: any; isComplete: boolean; missingFields?: { tag: string; question: string }[] }> {
     const normalizedTemplateName = templateName.toLowerCase();

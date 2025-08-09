@@ -91,7 +91,7 @@ export class AiController {
           const newTemplateName = analysis.templateName;
           const newTemplateLanguage = TEMPLATES_REGISTRY[newTemplateName]?.language || 'ru';
           const fields = await this.aiService.getFieldsForTemplate(newTemplateName);
-          const questions = await this.aiService.formatQuestionsForUser(fields, newTemplateName, true);
+          const questions = await this.aiService.formatQuestionsForUser(fields, newTemplateName);
           
           // Обновляем состояние пользователя, меняя шаблон, но сохраняя ID запроса.
           await this.usersService.setChatState(user.id, UserChatState.WAITING_FOR_DATA, newTemplateName, user.pending_request_id);
@@ -102,7 +102,7 @@ export class AiController {
               action: 'collect_data',
               requestId: user.pending_request_id,
               templateName: newTemplateName,
-              questions: questions,
+              questions: `Отлично, переключаемся на другой документ.\n\n${questions}`,
               instructions: newTemplateLanguage === 'kz'
                 ? 'Жаңа құжат үшін деректерді енгізіңіз. Бас тарту үшін "Болдырмау" деп жазыңыз.'
                 : 'Пожалуйста, предоставьте данные для нового документа. Если хотите отменить, напишите "Отмена".'
@@ -116,8 +116,8 @@ export class AiController {
           return res.status(200).json({ aiResponse: response.content });
       }
     }
+
     
-    await this.chatHistoryService.addUserMessageToHistory(userId, generateDto.prompt);
     // 2. Логика для обычного режима чата (когда пользователь не заполняет документ).
     const response = await this.aiService.getAiResponse(generateDto.prompt, user);
     console.log(`[Controller] Получен ответ от AiService, отправляю клиенту.`);
