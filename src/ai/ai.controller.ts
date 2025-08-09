@@ -113,14 +113,14 @@ export class AiController {
         case 'general_query':
           console.log(`[Controller] Пользователь в состоянии WAITING_FOR_DATA задал общий вопрос. Сбрасываю состояние.`);
           await this.resetToChatMode(userId);
-          const queryResponse = await this.aiService.getAiResponse(generateDto.prompt, user);
+          const queryResponse = await this.aiService.getAiResponse(generateDto.prompt, user.id);
           return res.status(200).json({ aiResponse: queryResponse.content });
       }
     }
 
     
     // 2. Логика для обычного режима чата (когда пользователь не заполняет документ).
-    const response = await this.aiService.getAiResponse(generateDto.prompt, user);
+    const response = await this.aiService.getAiResponse(generateDto.prompt, user.id);
     console.log(`[Controller] Получен ответ от AiService, отправляю клиенту.`);
 
     // Если AI определил, что нужно начать генерацию документа.

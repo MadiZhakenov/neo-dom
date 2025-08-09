@@ -286,44 +286,51 @@ export class AiService implements OnModuleInit {
   //   }
   // }
 
-  async getAiResponse(prompt: string, user: User): Promise<{ type: 'chat' | 'start_generation'; content: any }> {
+  async getAiResponse(prompt: string, userId: number): Promise<{ type: 'chat' | 'start_generation'; content: any }> {
     try {
-      console.log(`[AiService] Начинаю обработку для userId: ${user.id}`);
-      this.currentLanguage = this.detectLanguage(prompt);
-      const history = await this.chatHistoryService.getHistory(user.id);
-      
+      const language = this.detectLanguage(prompt);
+      const history = await this.chatHistoryService.getHistory(userId);
       const relevantDocs = this.vectorStore ? await this.vectorStore.similaritySearch(prompt, 3) : [];
-      const context = relevantDocs.map(doc => `ИЗ ДОКУМЕНТА "${doc.metadata.source}":\n${doc.pageContent}`).join('\n\n---\n\n');
+      const context = relevantDocs.map(doc => `Из документа ${doc.metadata.source}:\n${doc.pageContent}`).join('\n\n---\n\n');
 
-      const intentDetectionPrompt = `
-      //       Твоя роль - высокоточный робот-классификатор. Твоя работа критически важна. Ошибки недопустимы.
+      // --- ФИНАЛЬНЫЙ, ЕДИНЫЙ, УНИВЕРСАЛЬНЫЙ ПРОМПТ ---
+      const finalPrompt = `
+        Твоя роль - "NeoOSI", умный AI-ассистент для ОСИ в Казахстане. Твоя главная задача - вести осмысленный диалог и помогать пользователю.
 
-      //       ТВОЯ ЗАДАЧА:
-      //       Проанализируй "Запрос пользователя" и "Список шаблонов". Твоя цель - определить, хочет ли пользователь создать КОНКРЕТНЫЙ документ из списка, или он просто задает вопрос.
+        **ПЛАН ТВОИХ ДЕЙСТВИЙ (СТРОГО СЛЕДОВАТЬ):**
 
-      //       ПРАВИЛА ПРИНЯТИЯ РЕШЕНИЯ:
-      //       1.  **АНАЛИЗ ЗАПРОСА:** Внимательно прочитай "Запрос пользователя". Ищи ключевые слова, такие как "акт", "форма", "заявление", "отчет", "сделать", "оформить", "заполнить".
-      //       2.  **ПОИСК В ШАБЛОНАХ:** Сравни ключевые слова из запроса с названиями в "Списке шаблонов".
-      //       3.  **КЛАССИФИКАЦИЯ:**
-      //           -   **ЕСЛИ** запрос **однозначно** соответствует **ТОЛЬКО ОДНОМУ** шаблону из списка (например, пользователь указал полное название или уникальные ключевые слова) -> верни JSON {"intent": "start_generation", "templateName": "точное_имя_файла.docx"}
-      //            -   **ЕСЛИ** запрос **неоднозначен** (подходит под НЕСКОЛЬКО шаблонов, например, по общему слову "акт" или "документ") -> **это НЕ запрос на генерацию.** Верни JSON {"intent": "chat_response"}. Твой коллега-ассистент сам предложит пользователю варианты.
-      //           -   **ЕСЛИ** запрос **неоднозначен** (подходит под НЕСКОЛЬКО шаблонов, например, по слову "акт") -> верни JSON {"intent": "chat_response"}
-      //           -   **ЕСЛИ** в запросе вообще нет намека на создание документа (это приветствие, вопрос, продолжение диалога) -> верни JSON {"intent": "chat_response"}
-            
-      //       Твой ответ ВСЕГДА должен быть ТОЛЬКО в формате JSON. ЗАПРЕЩЕНО добавлять любые пояснения, комментарии или текст до/после JSON.
+        1.  **АНАЛИЗ ЗАПРОСА И ИСТОРИИ:** Всегда анализируй "Историю чата" и "Последний запрос", чтобы понять полный контекст.
 
-      //       Список шаблонов:
-      //       ${this._templateNames.map(t => `- "${t.humanName}" (файл: ${t.fileName})`).join('\n')}
-            
-      //       Запрос пользователя: "${prompt}"
-      //     `;
+        2.  **ОПРЕДЕЛЕНИЕ НАМЕРЕНИЯ (САМОЕ ВАЖНОЕ):**
+            -   **ЕСЛИ** пользователь **однозначно** выбрал или запросил **КОНКРЕТНЫЙ** документ из "Списка шаблонов" (например, "Давай первый" после твоего списка, или "Мне нужен акт сдачи-приемки работ по капитальному ремонту"), твоя задача - **ВЕРНУТЬ ТОЛЬКО JSON** следующего вида: \`{"intent": "start_generation", "templateName": "точное_имя_файла.docx"}\`. **БОЛЬШЕ НИЧЕГО НЕ ПИШИ.**
+            -   **ИНАЧЕ** (если это вопрос, приветствие, неоднозначный запрос на документ, ответ на твой вопрос), твоя задача - **сгенерировать обычный текстовый ответ**, следуя шагам ниже.
 
-      // Генерируем ответ, используя единый умный промпт
-      const rawResponse = await this.generateWithRetry(intentDetectionPrompt, history);
+        3.  **ГЕНЕРАЦИЯ ТЕКСТОВОГО ОТВЕТА (если это не start_generation):**
+            -   Проанализируй "Вопрос пользователя". **Самостоятельно определи основной язык вопроса** (казахский, русский или "шала-казахский").
+            -   **Твой ответ ВСЕГДА должен быть на том языке, на котором задан вопрос.** Моя предварительная оценка языка - (${language}), но доверяй своему анализу.
+            -   Если запрос неоднозначный (например, "хочу акт"), **предложи пользователю варианты** из "Списка шаблонов".
+            -   Если в "Контексте из документов" есть релевантный ответ, используй его.
+            -   Если в документах ответа нет, отвечай, используя "Историю чата" или общие знания по теме ЖКХ и ОСИ.
+            -   **Всегда помни** предыдущие сообщения.
+
+        **Список шаблонов для справки:**
+        ${this._templateNames.map(t => `- "${t.humanName}" (файл: ${t.fileName})`).join('\n')}
+
+        История чата:
+        ---
+        ${history.map(h => `${h.role}: ${h.parts[0].text}`).join('\n')}
+        ---
+        Контекст из документов:
+        ---
+        ${context || 'Нет релевантной информации.'}
+        ---
+        Последний запрос: "${prompt}"
+      `;
+
+      const rawResponse = await this.generateWithRetry(finalPrompt, history);
 
       // Пытаемся найти JSON в ответе
       const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-
       if (jsonMatch) {
         try {
           const parsed = JSON.parse(jsonMatch[0]);
@@ -331,23 +338,21 @@ export class AiService implements OnModuleInit {
             const foundTemplate = this._templateNames.find(t => t.fileName === parsed.templateName.toLowerCase());
             if (foundTemplate) {
               const confirmationMessage = `Начинаю подготовку документа: "${foundTemplate.humanName}".`;
-              await this.chatHistoryService.addMessageToHistory(user.id, prompt, confirmationMessage);
+              await this.chatHistoryService.addMessageToHistory(userId, prompt, confirmationMessage);
               return { type: 'start_generation', content: foundTemplate.fileName };
             }
           }
-        } catch (e) {
-          // Если парсинг не удался, значит, это был обычный текст с {}. Игнорируем.
-        }
+        } catch (e) { /* Игнорируем ошибку парсинга, считаем это текстом */ }
       }
       
-      // Если это не JSON для генерации, значит, это обычный ответ.
-      await this.chatHistoryService.addMessageToHistory(user.id, prompt, rawResponse);
+      // Если это не JSON для генерации, значит, это обычный текстовый ответ.
+      await this.chatHistoryService.addMessageToHistory(userId, prompt, rawResponse);
       return { type: 'chat', content: rawResponse };
 
     } catch (error) {
-      console.error('[AI Service] Ошибка в getAiResponse:', error);
+      console.error('[AI Service] Критическая ошибка в getAiResponse:', error);
       const errorMessage = 'Извините, произошла внутренняя ошибка.';
-      await this.chatHistoryService.addMessageToHistory(user.id, prompt, errorMessage);
+      await this.chatHistoryService.addMessageToHistory(userId, prompt, errorMessage);
       return { type: 'chat', content: errorMessage };
     }
   }
