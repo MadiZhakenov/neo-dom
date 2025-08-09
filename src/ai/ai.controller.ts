@@ -74,9 +74,12 @@ export class AiController {
           return this.handleDocumentGeneration(user, generateDto, res);
         case 'switch_document':
           if (!analysis.templateName) {
+            console.warn('AI определил смену документа, но не вернул имя шаблона.');
             await this.resetToChatMode(userId);
-            const switchErrorResponse = await this.aiService.getAiResponse(generateDto.prompt, user);
-            return res.status(200).json({ aiResponse: switchErrorResponse.content });
+            // --- ИСПРАВЛЕНИЕ ---
+            const errorMessage = "Извините, я не понял, на какой документ вы хотите переключиться. Давайте попробуем снова.";
+            await this.chatHistoryService.addMessageToHistory(userId, generateDto.prompt, errorMessage);
+            return res.status(200).json({ aiResponse: errorMessage });
           }
           const newTemplateName = analysis.templateName;
           const fields = await this.aiService.getFieldsForTemplate(newTemplateName);
@@ -93,16 +96,14 @@ export class AiController {
       }
     }
 
-
     
     // 2. Логика для обычного режима чата (когда пользователь не заполняет документ).
-    const response = await this.aiService.getAiResponse(generateDto.prompt, userId);
+    const response = await this.aiService.getAiResponse(generateDto.prompt, user);
     console.log(`[Controller] Получен ответ от AiService, отправляю клиенту.`);
 
     // Если AI определил, что нужно начать генерацию документа.
     if (response.type === 'start_generation') {
       const templateName = response.content;
-      const templateLanguage = TEMPLATES_REGISTRY[templateName]?.language || 'ru';
       const fieldsToFill = await this.aiService.getFieldsForTemplate(templateName);
       const formattedQuestions = await this.aiService.formatQuestionsForUser(fieldsToFill, templateName);
       const requestId = crypto.randomBytes(16).toString('hex');
@@ -116,8 +117,8 @@ export class AiController {
         templateName: templateName,
         questions: formattedQuestions,
         instructions: this.aiService.detectLanguage(generateDto.prompt) === 'kz'
-            ? 'Құжат үшін деректерді енгізіңіз. Бас тарту үшін "Болдырмау" деп жазыңыз.'
-            : 'Пожалуйста, предоставьте данные для документа. Если хотите отменить, напишите "Отмена".'
+          ? 'Құжат үшін деректерді енгізіңіз. Бас тарту үшін "Болдырмау" деп жазыңыз.'
+          : 'Пожалуйста, предоставьте данные для документа. Если хотите отменить, напишите "Отмена".',
       };
 
       await this.chatHistoryService.addMessageToHistory(userId, generateDto.prompt, JSON.stringify(responsePayload));

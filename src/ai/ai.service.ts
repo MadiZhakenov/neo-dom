@@ -208,14 +208,21 @@ export class AiService implements OnModuleInit {
       const history = await this.chatHistoryService.getHistory(user.id);
       
       const intentDetectionPrompt = `
-        Твоя задача - определить намерение пользователя с учетом истории чата. Варианты: "start_generation" или "chat_response".
-        - Если пользователь хочет создать документ (ключевые слова: "акт", "форма", "сделай", "заявление"), найди подходящий шаблон и верни: {"intent": "start_generation", "templateName": "имя_файла.docx"}
-        - Во всех остальных случаях (вопрос, приветствие, продолжение диалога) верни: {"intent": "chat_response"}
-        ЗАПРЕЩЕНО возвращать что-либо, кроме JSON.
-        Список шаблонов:
-        ${this._templateNames.map(t => `- "${t.humanName}" (файл: ${t.fileName})`).join('\n')}
-        Запрос пользователя: "${prompt}"
-      `;
+      Твоя задача - проанализировать "Запрос пользователя" и определить его намерение.
+
+      ШАГ 1: Найди в "Списке шаблонов" ВСЕ шаблоны, которые могут соответствовать запросу.
+      ШАГ 2: Прими решение:
+      - Если найден ТОЛЬКО ОДИН подходящий шаблон -> верни JSON: {"intent": "start_generation", "templateName": "имя_найденного_файла.docx"}
+      - Если найдено НЕСКОЛЬКО подходящих шаблонов (например, по слову "акт") ИЛИ НЕ НАЙДЕНО НИ ОДНОГО -> верни JSON: {"intent": "chat_response"}
+      - Если это просто вопрос или приветствие -> верни JSON: {"intent": "chat_response"}
+
+      ЗАПРЕЩЕНО возвращать что-либо, кроме указанных JSON-объектов.
+
+      Список шаблонов:
+      ${this._templateNames.map(t => `- "${t.humanName}" (файл: ${t.fileName})`).join('\n')}
+      
+      Запрос пользователя: "${prompt}"
+    `;
       
       const rawResponse = await this.generateWithRetry(intentDetectionPrompt, history);
       const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
