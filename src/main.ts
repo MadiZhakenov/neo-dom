@@ -1,3 +1,4 @@
+// src\main.ts
 // 1. Импортируем 'crypto'
 import * as crypto from 'crypto';
 

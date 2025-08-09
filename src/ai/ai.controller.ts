@@ -62,60 +62,37 @@ export class AiController {
       throw new NotFoundException('Пользователь не найден.');
     }
 
-    // 1. Если пользователь находится в состоянии "ожидания данных" для документа.
     if (user.chat_state === UserChatState.WAITING_FOR_DATA) {
-      // Защита от непредвиденной ошибки состояния.
       if (!user.pending_template_name) {
-        console.error(`Ошибка состояния: пользователь ${user.id} в WAITING_FOR_DATA, но pending_template_name отсутствует.`);
-        await this.resetToChatMode(user.id);
+        console.error(`Критическая ошибка состояния: пользователь ${user.id} в WAITING_FOR_DATA, но pending_template_name отсутствует.`);
+        await this.resetToChatMode(userId);
         return res.status(500).json({ aiResponse: 'Произошла внутренняя ошибка состояния. Пожалуйста, попробуйте начать заново.' });
       }
-
-      // Анализируем намерение пользователя: предоставляет ли он данные, хочет сменить документ или задает общий вопрос.
       const analysis = await this.aiService.analyzeInputDuringDataCollection(generateDto.prompt, user.pending_template_name);
-
       switch (analysis.intent) {
-        // 1.1. Пользователь предоставляет данные -> передаем управление генератору документов.
         case 'provide_data':
           return this.handleDocumentGeneration(user, generateDto, res);
-
-        // 1.2. Пользователь хочет сменить документ -> выполняем бесшовное переключение.
         case 'switch_document':
           if (!analysis.templateName) {
-            console.warn('AI определил смену документа, но не вернул имя шаблона. Сбрасываем в чат.');
-            await this.resetToChatMode(user.id);
-            const response = await this.aiService.getAiResponse(generateDto.prompt, user); 
-            return res.status(200).json({ aiResponse: response.content });
+            await this.resetToChatMode(userId);
+            const switchErrorResponse = await this.aiService.getAiResponse(generateDto.prompt, user);
+            return res.status(200).json({ aiResponse: switchErrorResponse.content });
           }
-
           const newTemplateName = analysis.templateName;
-          const newTemplateLanguage = TEMPLATES_REGISTRY[newTemplateName]?.language || 'ru';
           const fields = await this.aiService.getFieldsForTemplate(newTemplateName);
+          // Передаем флаг isSwitching = true
           const questions = await this.aiService.formatQuestionsForUser(fields, newTemplateName);
-          
-          // Обновляем состояние пользователя, меняя шаблон, но сохраняя ID запроса.
-          await this.usersService.setChatState(user.id, UserChatState.WAITING_FOR_DATA, newTemplateName, user.pending_request_id);
-
-          // Отправляем пользователю новые вопросы и локализованные инструкции.
+          await this.usersService.setChatState(userId, UserChatState.WAITING_FOR_DATA, newTemplateName, user.pending_request_id);
           return res.status(200).json({
-            aiResponse: {
-              action: 'collect_data',
-              requestId: user.pending_request_id,
-              templateName: newTemplateName,
-              questions: `Отлично, переключаемся на другой документ.\n\n${questions}`,
-              instructions: newTemplateLanguage === 'kz'
-                ? 'Жаңа құжат үшін деректерді енгізіңіз. Бас тарту үшін "Болдырмау" деп жазыңыз.'
-                : 'Пожалуйста, предоставьте данные для нового документа. Если хотите отменить, напишите "Отмена".'
-            }
+            aiResponse: { action: 'collect_data', requestId: user.pending_request_id, templateName: newTemplateName, questions: questions }
           });
-
-        // 1.3. Пользователь задал общий вопрос или хочет отменить действие.
         case 'general_query':
           await this.resetToChatMode(user.id);
-          const response = await this.aiService.getAiResponse(generateDto.prompt, user); 
-          return res.status(200).json({ aiResponse: response.content });
+          const queryResponse = await this.aiService.getAiResponse(generateDto.prompt, user);
+          return res.status(200).json({ aiResponse: queryResponse.content });
       }
     }
+
 
     
     // 2. Логика для обычного режима чата (когда пользователь не заполняет документ).

@@ -171,6 +171,8 @@ export class AiService implements OnModuleInit {
   private async getFactualAnswer(prompt: string, history: Content[], language: 'ru' | 'kz'): Promise<string> {
     const relevantDocs = this.vectorStore ? await this.vectorStore.similaritySearch(prompt, 3) : [];
     const context = relevantDocs.map(doc => `Из документа ${doc.metadata.source}:\n${doc.pageContent}`).join('\n\n---\n\n');
+
+    // --- ИСПОЛЬЗУЕМ ТВОЙ УЛУЧШЕННЫЙ ПРОМПТ ---
     const finalPrompt = `
       Твоя роль - "NeoOSI", умный и полезный AI-ассистент для жителей и управляющих ОСИ в Казахстане. Твоя главная задача - вести осмысленный диалог и помогать пользователю.
 
@@ -190,8 +192,8 @@ export class AiService implements OnModuleInit {
       ---
       Вопрос пользователя: "${prompt}"
     `;
-      return this.generateWithRetry(finalPrompt, history);
-    }
+    return this.generateWithRetry(finalPrompt, history);
+  }
 
   /**
    * Определяет основное намерение пользователя: начать генерацию документа или просто пообщаться.
@@ -230,14 +232,14 @@ export class AiService implements OnModuleInit {
         }
       }
       
-      // Если намерение не 'start_generation' или что-то пошло не так,
-      // мы всегда переходим к генерации обычного ответа.
-      const answer = await this.getFactualAnswer(prompt, history as Content[], languageHint);
+      const answer = await this.getFactualAnswer(prompt, history as Content[], this.currentLanguage);
+      await this.chatHistoryService.addMessageToHistory(user.id, prompt, answer);
       return { type: 'chat', content: answer };
 
     } catch (error) {
       console.error('[AI Service] Ошибка в getAiResponse:', error);
-      const errorMessage = this.currentLanguage === 'kz' ? 'Кешіріңіз, сұранысыңызды өңдеу кезінде ішкі қате пайда болды.' : 'Извините, произошла внутренняя ошибка при обработке вашего запроса.';
+      const errorMessage = this.currentLanguage === 'kz' ? 'Кешіріңіз, қате пайда болды.' : 'Извините, произошла ошибка.';
+      await this.chatHistoryService.addMessageToHistory(user.id, prompt, errorMessage);
       return { type: 'chat', content: errorMessage };
     }
   }

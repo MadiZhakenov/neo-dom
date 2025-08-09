@@ -1,3 +1,4 @@
+// src\data-source.ts
 import { DataSource, DataSourceOptions } from 'typeorm';
 
 export const dataSourceOptions: DataSourceOptions = {
