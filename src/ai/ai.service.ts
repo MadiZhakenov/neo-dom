@@ -224,67 +224,6 @@ export class AiService implements OnModuleInit {
    * @param userId - ID пользователя для доступа к истории чата.
    * @returns Объект с типом намерения ('chat' или 'start_generation') и полезной нагрузкой (ответ или имя шаблона).
    */
-  // async getAiResponse(prompt: string, user: User): Promise<{ type: 'chat' | 'start_generation'; content: any }> {
-  //   try {
-  //     console.log(`[AiService] Начинаю обработку для userId: ${user.id}`);
-  //     this.currentLanguage = this.detectLanguage(prompt);
-  //     const history = await this.chatHistoryService.getHistory(user.id);
-      
-  //     // --- НОВЫЙ, МАКСИМАЛЬНО ПОДРОБНЫЙ ПРОМПТ ДЛЯ ОПРЕДЕЛЕНИЯ НАМЕРЕНИЯ ---
-  //     const intentDetectionPrompt = `
-  //       Твоя роль - высокоточный робот-классификатор. Твоя работа критически важна. Ошибки недопустимы.
-
-  //       ТВОЯ ЗАДАЧА:
-  //       Проанализируй "Запрос пользователя" и "Список шаблонов". Твоя цель - определить, хочет ли пользователь создать КОНКРЕТНЫЙ документ из списка, или он просто задает вопрос.
-
-  //       ПРАВИЛА ПРИНЯТИЯ РЕШЕНИЯ:
-  //       1.  **АНАЛИЗ ЗАПРОСА:** Внимательно прочитай "Запрос пользователя". Ищи ключевые слова, такие как "акт", "форма", "заявление", "отчет", "сделать", "оформить", "заполнить".
-  //       2.  **ПОИСК В ШАБЛОНАХ:** Сравни ключевые слова из запроса с названиями в "Списке шаблонов".
-  //       3.  **КЛАССИФИКАЦИЯ:**
-  //           -   **ЕСЛИ** запрос **однозначно** соответствует **ТОЛЬКО ОДНОМУ** шаблону из списка (например, пользователь указал полное название или уникальные ключевые слова) -> верни JSON {"intent": "start_generation", "templateName": "точное_имя_файла.docx"}
-  //            -   **ЕСЛИ** запрос **неоднозначен** (подходит под НЕСКОЛЬКО шаблонов, например, по общему слову "акт" или "документ") -> **это НЕ запрос на генерацию.** Верни JSON {"intent": "chat_response"}. Твой коллега-ассистент сам предложит пользователю варианты.
-  //           -   **ЕСЛИ** запрос **неоднозначен** (подходит под НЕСКОЛЬКО шаблонов, например, по слову "акт") -> верни JSON {"intent": "chat_response"}
-  //           -   **ЕСЛИ** в запросе вообще нет намека на создание документа (это приветствие, вопрос, продолжение диалога) -> верни JSON {"intent": "chat_response"}
-        
-  //       Твой ответ ВСЕГДА должен быть ТОЛЬКО в формате JSON. ЗАПРЕЩЕНО добавлять любые пояснения, комментарии или текст до/после JSON.
-
-  //       Список шаблонов:
-  //       ${this._templateNames.map(t => `- "${t.humanName}" (файл: ${t.fileName})`).join('\n')}
-        
-  //       Запрос пользователя: "${prompt}"
-  //     `;
-      
-  //     const rawResponse = await this.generateWithRetry(intentDetectionPrompt, history);
-  //     const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-
-  //     if (jsonMatch) {
-  //       try {
-  //         const parsed = JSON.parse(jsonMatch[0]);
-  //         if (parsed.intent === 'start_generation' && parsed.templateName) {
-  //           const foundTemplate = this._templateNames.find(t => t.fileName === parsed.templateName.toLowerCase());
-  //           if (foundTemplate) {
-  //             const confirmationMessage = this.currentLanguage === 'kz' ? `Әрине, "${foundTemplate.humanName}" құжатын дайындауға көмектесемін.` : `Конечно, я помогу вам подготовить документ: "${foundTemplate.humanName}".`;
-  //             await this.chatHistoryService.addMessageToHistory(user.id, prompt, confirmationMessage);
-  //             return { type: 'start_generation', content: foundTemplate.fileName };
-  //           }
-  //         }
-  //       } catch (e) {
-  //           console.error("Ошибка парсинга JSON ответа для определения намерения:", e);
-  //       }
-  //     }
-      
-  //     // Если намерение 'chat_response' или что-то пошло не так, вызываем твой "умный" промпт.
-  //     const answer = await this.getFactualAnswer(prompt, history as Content[], this.currentLanguage);
-  //     await this.chatHistoryService.addMessageToHistory(user.id, prompt, answer);
-  //     return { type: 'chat', content: answer };
-
-  //   } catch (error) {
-  //     console.error('[AI Service] Ошибка в getAiResponse:', error);
-  //     const errorMessage = this.currentLanguage === 'kz' ? 'Кешіріңіз, қате пайда болды.' : 'Извините, произошла ошибка.';
-  //     await this.chatHistoryService.addMessageToHistory(user.id, prompt, errorMessage);
-  //     return { type: 'chat', content: errorMessage };
-  //   }
-  // }
 
   async getAiResponse(prompt: string, userId: number): Promise<{ type: 'chat' | 'start_generation'; content: any }> {
     try {

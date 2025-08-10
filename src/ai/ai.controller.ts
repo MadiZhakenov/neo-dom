@@ -69,31 +69,6 @@ export class AiController {
         return res.status(500).json({ aiResponse: 'Произошла внутренняя ошибка состояния. Пожалуйста, попробуйте начать заново.' });
       }
       const analysis = await this.aiService.analyzeInputDuringDataCollection(generateDto.prompt, user.pending_template_name);
-      // switch (analysis.intent) {
-      //   case 'provide_data':
-      //     return this.handleDocumentGeneration(user, generateDto, res);
-      //   case 'switch_document':
-      //     if (!analysis.templateName) {
-      //       console.warn('AI определил смену документа, но не вернул имя шаблона.');
-      //       await this.resetToChatMode(userId);
-      //       // --- ИСПРАВЛЕНИЕ ---
-      //       const errorMessage = "Извините, я не понял, на какой документ вы хотите переключиться. Давайте попробуем снова.";
-      //       await this.chatHistoryService.addMessageToHistory(userId, generateDto.prompt, errorMessage);
-      //       return res.status(200).json({ aiResponse: errorMessage });
-      //     }
-      //     const newTemplateName = analysis.templateName;
-      //     const fields = await this.aiService.getFieldsForTemplate(newTemplateName);
-      //     // Передаем флаг isSwitching = true
-      //     const questions = await this.aiService.formatQuestionsForUser(fields, newTemplateName);
-      //     await this.usersService.setChatState(userId, UserChatState.WAITING_FOR_DATA, newTemplateName, user.pending_request_id);
-      //     return res.status(200).json({
-      //       aiResponse: { action: 'collect_data', requestId: user.pending_request_id, templateName: newTemplateName, questions: questions }
-      //     });
-      //   case 'general_query':
-      //     await this.resetToChatMode(user.id);
-      //     const queryResponse = await this.aiService.getAiResponse(generateDto.prompt, user);
-      //     return res.status(200).json({ aiResponse: queryResponse.content });
-      // }
       switch (analysis.intent) {
         // 1.1. Пользователь предоставляет данные -> передаем управление генератору документов.
         case 'provide_data':
@@ -138,7 +113,7 @@ export class AiController {
         requestId: requestId,
         templateName: templateName,
         questions: formattedQuestions,
-        instructions: this.aiService.detectLanguage(generateDto.prompt) === 'kz'
+        instructions: TEMPLATES_REGISTRY[templateName]?.language === 'kz'
           ? 'Құжат үшін деректерді енгізіңіз. Бас тарту үшін "Болдырмау" деп жазыңыз.'
           : 'Пожалуйста, предоставьте данные для документа. Если хотите отменить, напишите "Отмена".',
       };
