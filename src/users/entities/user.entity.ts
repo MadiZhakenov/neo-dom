@@ -5,16 +5,6 @@
 
 import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
 
-/**
- * Перечисление возможных состояний чата для пользователя.
- */
-export enum UserChatState {
-  /** Обычный режим чата. */
-  IDLE = 'idle',
-  /** Режим сбора данных для генерации документа. */
-  WAITING_FOR_DATA = 'waiting_for_data',
-}
-
 @Entity('users')
 export class User {
   @PrimaryGeneratedColumn()
@@ -43,15 +33,6 @@ export class User {
 
   @Column({ default: 'resident' })
   role: 'resident' | 'admin' | 'accountant';
-
-  @Column({ type: 'enum', enum: UserChatState, default: UserChatState.IDLE })
-  chat_state: UserChatState;
-
-  @Column({ type: 'varchar', nullable: true })
-  pending_template_name: string | null;
-
-  @Column({ type: 'varchar', nullable: true })
-  pending_request_id: string | null;
 
   /*Дата и время, когда истекает активная премиум-подписка. 
     Если null, значит, у пользователя базовый тариф.

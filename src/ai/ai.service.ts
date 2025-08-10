@@ -14,22 +14,16 @@ import { GoogleGenerativeAIEmbeddings } from '@langchain/google-genai';
 import { RecursiveCharacterTextSplitter } from 'langchain/text_splitter';
 import { ChatHistoryService } from '../chat/history/history.service';
 import { TEMPLATES_REGISTRY } from './templates.registry';
-import { User } from '../users/entities/user.entity';
+import { ChatType } from '../chat/entities/chat-message.entity';
 
-// Вспомогательная функция для создания задержки (используется в механизме retry).
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
 @Injectable()
 export class AiService implements OnModuleInit {
-  /** Основная, более мощная модель (gemini-1.5-pro) */
   private primaryModel: any;
-  /** Резервная, более быстрая модель на случай сбоя основной (gemini-1.5-flash) */
   private fallbackModel: any;
-  /** In-memory база данных для векторного поиска по документам (RAG) */
   private vectorStore: MemoryVectorStore;
-  /** Кэшированный и нормализованный список имен шаблонов для внутреннего использования */
   private _templateNames: { fileName: string; humanName: string }[];
-  /** Язык, определенный для текущего запроса ('ru' или 'kz') */
   private currentLanguage: 'ru' | 'kz' = 'ru';
 
   constructor(
@@ -237,83 +231,79 @@ export class AiService implements OnModuleInit {
   }
 
   /**
-   * Определяет основное намерение пользователя: начать генерацию документа или просто пообщаться.
+   * Генерирует ответ для общего чата, используя RAG и историю.
    * @param prompt - Запрос пользователя.
-   * @param userId - ID пользователя для доступа к истории чата.
-   * @returns Объект с типом намерения ('chat' или 'start_generation') и полезной нагрузкой (ответ или имя шаблона).
+   * @param userId - ID пользователя.
+   * @returns Текстовый ответ от AI.
    */
+  async getChatAnswer(prompt: string, userId: number): Promise<string> {
+    const language = this.detectLanguage(prompt);
+    const history = await this.chatHistoryService.getHistory(userId, ChatType.GENERAL); // Указываем тип истории
+    const relevantDocs = this.vectorStore ? await this.vectorStore.similaritySearch(prompt, 3) : [];
+    const context = relevantDocs.map(doc => `Из документа ${doc.metadata.source}:\n${doc.pageContent}`).join('\n\n---\n\n');
 
-  async getAiResponse(prompt: string, userId: number): Promise<{ type: 'chat' | 'start_generation'; content: any }> {
-    try {
-      const language = this.detectLanguage(prompt);
-      const history = await this.chatHistoryService.getHistory(userId);
-      const relevantDocs = this.vectorStore ? await this.vectorStore.similaritySearch(prompt, 3) : [];
-      const context = relevantDocs.map(doc => `Из документа ${doc.metadata.source}:\n${doc.pageContent}`).join('\n\n---\n\n');
+    const finalPrompt = `
+      Твоя роль - "NeoOSI", умный и полезный AI-ассистент для жителей и управляющих ОСИ в Казахстане. Твоя главная задача - вести осмысленный, последовательный диалог и помогать пользователю.
 
-      // --- ФИНАЛЬНЫЙ, ЕДИНЫЙ, УНИВЕРСАЛЬНЫЙ ПРОМПТ ---
-      const finalPrompt = `
-        Твоя роль - "NeoOSI", умный AI-ассистент для ОСИ в Казахстане. Твоя главная задача - вести осмысленный диалог и помогать пользователю.
+      **ПЛАН ТВОИХ ДЕЙСТВИЙ:**
+      1.  **Всегда** начинай с анализа "Истории чата", чтобы понять, о чем идет речь. Твой ответ должен быть логичным продолжением диалога.
+      2.  Проанализируй "Вопрос пользователя". **Самостоятельно определи основной язык вопроса** (казахский, русский или "шала-казахский") и **отвечай ВСЕГДА на этом же языке**.
+      3.  **Сначала** попробуй найти ответ в предоставленном "Контексте из документов".
+      4.  **Если в документах нет ответа**, не говори "Я не знаю". Ответь на вопрос, используя "Историю чата" или свои общие знания по теме ЖКХ и ОСИ.
+      5.  Если запрос **неоднозначный** (например, "хочу документ"), **предложи пользователю варианты**, сказав, что для оформления ему нужно перейти в раздел "ИИ-Документы".
+      6.  Если это приветствие или общий вопрос, просто поддержи дружелюбный разговор.
 
-        **ПЛАН ТВОИХ ДЕЙСТВИЙ (СТРОГО СЛЕДОВАТЬ):**
+      ВАЖНО: Ты **всегда** должен помнить предыдущие сообщения из "Истории чата".
 
-        1.  **АНАЛИЗ ЗАПРОСА И ИСТОРИИ:** Всегда анализируй "Историю чата" и "Последний запрос", чтобы понять полный контекст.
+      Контекст из документов (используй, если релевантно):
+      ---
+      ${context || 'Для этого запроса релевантной информации в документах не найдено.'}
+      ---
+      Вопрос пользователя: "${prompt}"
+    `;
 
-        2.  **ОПРЕДЕЛЕНИЕ НАМЕРЕНИЯ (САМОЕ ВАЖНОЕ):**
-            -   **ЕСЛИ** пользователь **однозначно** выбрал или запросил **КОНКРЕТНЫЙ** документ из "Списка шаблонов" (например, "Давай первый" после твоего списка, или "Мне нужен акт сдачи-приемки работ по капитальному ремонту"), твоя задача - **ВЕРНУТЬ ТОЛЬКО JSON** следующего вида: \`{"intent": "start_generation", "templateName": "точное_имя_файла.docx"}\`. **БОЛЬШЕ НИЧЕГО НЕ ПИШИ.**
-            -   **ИНАЧЕ** (если это вопрос, приветствие, неоднозначный запрос на документ, ответ на твой вопрос), твоя задача - **сгенерировать обычный текстовый ответ**, следуя шагам ниже.
+    const answer = await this.generateWithRetry(finalPrompt, history);
+    await this.chatHistoryService.addMessageToHistory(userId, prompt, answer, ChatType.GENERAL);
+    return answer;
+  }
 
-        3.  **ГЕНЕРАЦИЯ ТЕКСТОВОГО ОТВЕТА (если это не start_generation):**
-            -   Проанализируй "Вопрос пользователя". **Самостоятельно определи основной язык вопроса** (казахский, русский или "шала-казахский").
-            -   **Твой ответ ВСЕГДА должен быть на том языке, на котором задан вопрос.** Моя предварительная оценка языка - (${language}), но доверяй своему анализу.
-            -   Если запрос неоднозначный (например, "хочу акт"), **предложи пользователю варианты** из "Списка шаблонов".
-            -   Если в "Контексте из документов" есть релевантный ответ, используй его.
-            -   Если в документах ответа нет, отвечай, используя "Историю чата" или общие знания по теме ЖКХ и ОСИ.
-            -   **Всегда помни** предыдущие сообщения.
+  /**
+   * Шаг 1: Находит подходящий шаблон и возвращает список вопросов.
+   * @param prompt - Запрос пользователя.
+   * @param userId - ID пользователя.
+   * @returns Объект с вопросами или сообщение с вариантами.
+   */
+  async startDocumentGeneration(prompt: string, userId: number): Promise<any> {
+    const language = this.detectLanguage(prompt);
+    const history = await this.chatHistoryService.getHistory(userId, ChatType.GENERAL);
 
-        **Список шаблонов для справки:**
-        ${this._templateNames.map(t => `- "${t.humanName}" (файл: ${t.fileName})`).join('\n')}
+    const intentDetectionPrompt = `
+      Твоя задача - найти в "Списке шаблонов" тот, который лучше всего соответствует "Запросу пользователя".
+      - ЕСЛИ найден ОДИН подходящий шаблон -> верни ТОЛЬКО JSON: {"templateName": "имя_файла.docx"}
+      - ЕСЛИ найдено НЕСКОЛЬКО подходящих шаблонов или НЕ НАЙДЕНО НИ ОДНОГО -> верни ТОЛЬКО JSON: {"templateName": null, "clarification": "текст_уточняющего_вопроса_с_вариантами"}
+      Список шаблонов:
+      ${this._templateNames.map(t => `- "${t.humanName}" (файл: ${t.fileName})`).join('\n')}
+      Запрос: "${prompt}"
+    `;
+    
+    const rawResponse = await this.generateWithRetry(intentDetectionPrompt, history);
+    const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) { throw new Error("Не удалось определить шаблон."); }
 
-        История чата:
-        ---
-        ${history.map(h => `${h.role}: ${h.parts[0].text}`).join('\n')}
-        ---
-        Контекст из документов:
-        ---
-        ${context || 'Нет релевантной информации.'}
-        ---
-        Последний запрос: "${prompt}"
-      `;
+    const parsed = JSON.parse(jsonMatch[0]);
 
-      const rawResponse = await this.generateWithRetry(finalPrompt, history);
-
-      // Пытаемся найти JSON в ответе
-      const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        try {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (parsed.intent === 'start_generation' && parsed.templateName) {
-            const foundTemplate = this._templateNames.find(t => t.fileName === parsed.templateName.toLowerCase());
-            if (foundTemplate) {
-              // const confirmationMessage = `Начинаю подготовку документа: "${foundTemplate.humanName}".`;
-              // await this.chatHistoryService.addMessageToHistory(userId, prompt, confirmationMessage);
-              return { type: 'start_generation', content: foundTemplate.fileName };
-            }
-          }
-        } catch (e) { /* Игнорируем ошибку парсинга, считаем это текстом */ }
-      }
-      
-      // // Если это не JSON для генерации, значит, это обычный текстовый ответ.
-      // await this.chatHistoryService.addMessageToHistory(userId, prompt, rawResponse);
-      // return { type: 'chat', content: rawResponse };
-      const answer = await this.getFactualAnswer(prompt, history, language);
-      // --- ИСПРАВЛЕНИЕ: НИЧЕГО НЕ СОХРАНЯЕМ, ПРОСТО ВОЗВРАЩАЕМ ---
-      return { type: 'chat', content: answer };
-
-    } catch (error) {
-      console.error('[AI Service] Критическая ошибка в getAiResponse:', error);
-      const errorMessage = 'Извините, произошла внутренняя ошибка.';
-      // await this.chatHistoryService.addMessageToHistory(userId, prompt, errorMessage);
-      return { type: 'chat', content: errorMessage };
+    if (parsed.templateName) {
+      // Если шаблон найден, генерируем вопросы
+      const fields = await this.getFieldsForTemplate(parsed.templateName);
+      const questions = await this.formatQuestionsForUser(fields, parsed.templateName);
+      const responsePayload = { action: 'collect_data', templateName: parsed.templateName, questions };
+      await this.chatHistoryService.addMessageToHistory(userId, prompt, JSON.stringify(responsePayload), ChatType.GENERAL);
+      return responsePayload;
+    } else {
+      // Если нужна кларификация, возвращаем ее
+      const clarification = parsed.clarification || "Уточните, какой документ вам нужен?";
+      await this.chatHistoryService.addMessageToHistory(userId, prompt, clarification, ChatType.GENERAL);
+      return { action: 'clarification', message: clarification };
     }
   }
 
@@ -494,25 +484,6 @@ export class AiService implements OnModuleInit {
    * @returns Объект с определенным намерением ('provide_data', 'switch_document', 'general_query').
    */
   async analyzeInputDuringDataCollection(prompt: string, currentTemplateName: string): Promise<{ intent: 'provide_data' | 'switch_document' | 'general_query'| 'repeat_request'; templateName?: string }> {
-    // const intentAnalysisPrompt = `
-    //   Твоя задача - проанализировать сообщение пользователя, который сейчас заполняет документ "${currentTemplateName}". Определи его намерение.
-      
-    //   **ПРАВИЛО ГИБКОСТИ:** Пользователь может использовать неформальный язык. Например, "жақсы давайсн", "керек жок", "забей", "отмена" - все это означает намерение "general_query" (отмена).
-
-    //   Возможные намерения:
-    //   1. "provide_data": Пользователь предоставляет запрошенные данные.
-    //   2. "switch_document": Пользователь хочет отменить текущий процесс и начать заполнять ДРУГОЙ документ.
-    //   3.  "repeat_request": Пользователь, похоже, отправил свой ПЕРВОНАЧАЛЬНЫЙ запрос еще раз. (Определяй это, если новый запрос очень похож на название текущего документа).
-    //   4.  **"general_query":** Любое сообщение, которое **не является** предоставлением данных для документа. Это может быть вопрос, команда отмены ("керек жоқ", "забей", "отмена"), благодарность ("спасибо"), или любая другая фраза, не похожая на данные для полей.
-    //   Список ВСЕХ доступных документов:
-    //   ${this._templateNames.map(t => `- "${t.humanName}" (файл: ${t.fileName})`).join('\n')}
-    //   Проанализируй запрос и верни ТОЛЬКО JSON:
-    //   - Если это данные: {"intent": "provide_data"}
-    //   - Если это смена документа: {"intent": "switch_document", "templateName": "точное_имя_файла.docx"}
-    //   - Если это повторный запрос: {"intent": "repeat_request"}
-    //   - Если общий вопрос: {"intent": "general_query"}
-    //   Запрос пользователя: "${prompt}"
-    // `;
     const intentAnalysisPrompt = `
     Ты - высокоточный анализатор намерений с расширенным контекстным пониманием. Твоя задача - определить истинное намерение пользователя, который находится в процессе заполнения документа "${currentTemplateName}".
     

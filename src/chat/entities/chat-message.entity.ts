@@ -14,7 +14,12 @@ export enum ChatMessageRole {
   MODEL = 'model',
 }
 
-@Entity()
+export enum ChatType {
+  GENERAL = 'chat',
+  DOCUMENT = 'document',
+}
+
+@Entity('chat_message') 
 export class ChatMessage {
   @PrimaryGeneratedColumn()
   id: number;
@@ -32,4 +37,11 @@ export class ChatMessage {
   // Автоматически устанавливаемая дата создания
   @CreateDateColumn()
   createdAt: Date;
+
+  @Column({
+    type: 'enum',
+    enum: ChatType,
+    default: ChatType.GENERAL, // По умолчанию - обычный чат
+  })
+  type: ChatType;
 }

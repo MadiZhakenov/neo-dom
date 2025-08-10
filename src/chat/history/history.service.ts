@@ -1,12 +1,12 @@
 /**
  * @file src/chat/history/history.service.ts
- * @description Сервис для управления историей сообщений в чате.
+ * @description Сервис для управления историей сообщений в чате с разделением по типам.
  */
 
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ChatMessage, ChatMessageRole } from '../entities/chat-message.entity';
+import { ChatMessage, ChatMessageRole, ChatType } from '../entities/chat-message.entity';
 import { User } from '../../users/entities/user.entity';
 import { Content } from '@google/generative-ai';
 
@@ -19,50 +19,42 @@ export class ChatHistoryService {
     private readonly userRepository: Repository<User>,
   ) {}
 
-/**
-   * Получает последние сообщения и форматирует их для Google Gemini API.
-   * Обеспечивает правильное чередование ролей, чтобы история всегда начиналась с 'user'.
-   * @param userId - ID пользователя.
-   * @returns Массив сообщений в формате для AI.
-   */
-async getHistory(userId: number): Promise<Content[]> {
-  const messages = await this.chatMessageRepository.find({
-    where: { user: { id: userId } },
-    order: { createdAt: 'DESC' },
-    take: 20, // Берем с запасом
-  });
-
-  if (messages.length === 0) {
-    return [];
-  }
-  
-  const sortedMessages = messages.reverse();
-  
-  const firstUserIndex = sortedMessages.findIndex(msg => msg.role === ChatMessageRole.USER);
-
-  if (firstUserIndex === -1) {
-    return [];
-  }
-
-  const validHistory = sortedMessages.slice(firstUserIndex);
-
-  return validHistory.map((msg) => ({
-    role: msg.role as 'user' | 'model',
-    parts: [{ text: msg.content }],
-  }));
-}
-  
-  // --- НОВЫЕ И ИЗМЕНЕННЫЕ МЕТОДЫ ---
-
   /**
-   * Сохраняет ТОЛЬКО сообщение пользователя в историю.
+   * Получает историю для конкретного типа чата.
    * @param userId - ID пользователя.
-   * @param userContent - Текст сообщения.
+   * @param type - Тип чата ('chat' или 'document').
    */
-  async addUserMessageToHistory(userId: number, userContent: string): Promise<void> {
+  async getHistory(userId: number, type: ChatType): Promise<Content[]> {
+    const messages = await this.chatMessageRepository.find({
+      where: { user: { id: userId }, type: type }, // <-- Фильтруем по типу
+      order: { createdAt: 'DESC' },
+      take: 20,
+    });
+
+    if (messages.length === 0) return [];
+    
+    const sortedMessages = messages.reverse();
+    const firstUserIndex = sortedMessages.findIndex(msg => msg.role === ChatMessageRole.USER);
+    if (firstUserIndex === -1) return [];
+
+    const validHistory = sortedMessages.slice(firstUserIndex);
+    return validHistory.map((msg) => ({
+      role: msg.role as 'user' | 'model',
+      parts: [{ text: msg.content }],
+    }));
+  }
+  
+  /**
+   * Добавляет пару сообщений в историю для конкретного типа чата.
+   * @param userId - ID пользователя.
+   * @param userContent - Сообщение пользователя.
+   * @param modelContent - Ответ модели.
+   * @param type - Тип чата.
+   */
+  async addMessageToHistory(userId: number, userContent: string, modelContent: string, type: ChatType): Promise<void> {
     const user = await this.userRepository.findOneBy({ id: userId });
     if (!user) {
-      console.error(`addUserMessageToHistory: Пользователь с ID ${userId} не найден.`);
+      console.error(`Попытка добавить историю для несуществующего пользователя с ID: ${userId}`);
       return;
     }
 
@@ -70,74 +62,35 @@ async getHistory(userId: number): Promise<Content[]> {
       user,
       role: ChatMessageRole.USER,
       content: userContent,
+      type: type, // <-- Указываем тип
     });
-    await this.chatMessageRepository.save(userMessage);
-  }
 
-  /**
-   * Сохраняет ТОЛЬКО ответ модели в историю.
-   * @param userId - ID пользователя.
-   * @param modelContent - Текст ответа AI.
-   */
-  async addModelMessageToHistory(userId: number, modelContent: string): Promise<void> {
-    const user = await this.userRepository.findOneBy({ id: userId });
-    if (!user) {
-      console.error(`addModelMessageToHistory: Пользователь с ID ${userId} не найден.`);
-      return;
-    }
-    
     const modelMessage = this.chatMessageRepository.create({
       user,
       role: ChatMessageRole.MODEL,
       content: modelContent,
+      type: type, // <-- Указываем тип
     });
-    await this.chatMessageRepository.save(modelMessage);
+
+    await this.chatMessageRepository.save([userMessage, modelMessage]);
   }
 
-/**
-   * Добавляет пару сообщений (от пользователя и от модели) в историю чата.
+  /**
+   * Получает историю для фронтенда для конкретного типа чата.
    * @param userId - ID пользователя.
-   * @param userContent - Текст сообщения от пользователя.
-   * @param modelContent - Текст ответа от AI.
+   * @param type - Тип чата.
    */
-async addMessageToHistory(userId: number, userContent: string, modelContent: string): Promise<void> {
-  const user = await this.userRepository.findOneBy({ id: userId });
-  if (!user) {
-    console.error(`Попытка добавить историю для несуществующего пользователя с ID: ${userId}`);
-    return;
+  async getHistoryForUser(userId: number, type: ChatType) {
+    const messages = await this.chatMessageRepository.find({
+      where: { user: { id: userId }, type: type }, // <-- Фильтруем по типу
+      order: { createdAt: 'ASC' },
+      take: 50, 
+    });
+
+    return messages.map(msg => ({
+        role: msg.role,
+        content: msg.content,
+        createdAt: msg.createdAt,
+    }));
   }
-
-  const userMessage = this.chatMessageRepository.create({
-    user,
-    role: ChatMessageRole.USER,
-    content: userContent,
-  });
-
-  const modelMessage = this.chatMessageRepository.create({
-    user,
-    role: ChatMessageRole.MODEL,
-    content: modelContent,
-  });
-
-  await this.chatMessageRepository.save([userMessage, modelMessage]);
-}
-
-/**
-   * Получает историю чата для отображения пользователю на фронтенде.
-   * @param userId - ID пользователя.
-   */
-async getHistoryForUser(userId: number) {
-  const messages = await this.chatMessageRepository.find({
-    where: { user: { id: userId } },
-    order: { createdAt: 'ASC' },
-    take: 50, 
-  });
-
-  return messages.map(msg => ({
-      role: msg.role,
-      content: msg.content,
-      createdAt: msg.createdAt,
-  }));
-}
-
 }

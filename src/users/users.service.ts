@@ -7,7 +7,7 @@
 import { Injectable, UnauthorizedException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
-import { User, UserChatState } from './entities/user.entity';
+import { User } from './entities/user.entity';
 import * as bcrypt from 'bcrypt';
 import { CreateUserDto } from './dto/create-user.dto';
 
@@ -92,26 +92,6 @@ export class UsersService {
    */
   async findOneById(id: number): Promise<User | null> {
     return this.usersRepository.findOneBy({ id });
-  }
-
-  /**
-   * Устанавливает и сохраняет текущее состояние чата для пользователя.
-   * @param userId - ID пользователя.
-   * @param state - Новое состояние (IDLE или WAITING_FOR_DATA).
-   * @param templateName - Имя шаблона, который заполняется (если есть).
-   * @param requestId - Уникальный ID текущего запроса на генерацию (если есть).
-   */
-  async setChatState(
-    userId: number,
-    state: UserChatState,
-    templateName: string | null = null,
-    requestId: string | null = null,
-  ): Promise<void> {
-    await this.usersRepository.update(userId, {
-      chat_state: state,
-      pending_template_name: templateName,
-      pending_request_id: requestId,
-    });
   }
 
   /**
