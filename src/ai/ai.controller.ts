@@ -75,34 +75,42 @@ export class AiController {
           return this.handleDocumentGeneration(user, generateDto, res);
 
         // 1.2. Пользователь хочет сменить документ (или повторно запрашивает тот же).
-        // case 'switch_document':
-        //   console.log(`[Controller] Пользователь в состоянии WAITING_FOR_DATA запросил новый документ. Сбрасываю состояние и начинаю заново.`);
-        //   // Сбрасываем состояние, чтобы выйти из режима "ожидания данных".
-        //   await this.resetToChatMode(userId);
-        //   // Просто вызываем этот же метод `chatWithAssistant` еще раз.
-        //   // Теперь, когда состояние сброшено, запрос пойдет по стандартной ветке,
-        //   // как будто это новый диалог. Это предотвращает "поломку".
-        //   return this.chatWithAssistant(req, generateDto, res);
-
-        // // 1.3. Пользователь задал общий вопрос или хочет отменить действие.
-        // case 'general_query':
-        //   console.log(`[Controller] Пользователь в состоянии WAITING_FOR_DATA задал общий вопрос. Сбрасываю состояние.`);
-        //   await this.resetToChatMode(userId);
-        //   const queryResponse = await this.aiService.getAiResponse(generateDto.prompt, user.id);
-        //   return res.status(200).json({ aiResponse: queryResponse.content });
-
         case 'switch_document':
-        case 'general_query':
-          console.log(`[Controller] Пользователь в состоянии WAITING_FOR_DATA запросил что-то другое. Сбрасываю состояние и начинаю заново.`);
-          
+          console.log(`[Controller] Пользователь в состоянии WAITING_FOR_DATA запросил новый документ. Сбрасываю состояние и начинаю заново.`);
           // Сбрасываем состояние, чтобы выйти из режима "ожидания данных".
           await this.resetToChatMode(userId);
-          
           // Просто вызываем этот же метод `chatWithAssistant` еще раз.
-          // Теперь, когда состояние сброшено, запрос пойдет по стандартной,
-          // "нижней" ветке, как будто это новый диалог.
+          // Теперь, когда состояние сброшено, запрос пойдет по стандартной ветке,
+          // как будто это новый диалог. Это предотвращает "поломку".
           return this.chatWithAssistant(req, generateDto, res);
+
+        // 1.3. Пользователь задал общий вопрос или хочет отменить действие.
+        case 'general_query':
+          console.log(`[Controller] Пользователь в состоянии WAITING_FOR_DATA задал общий вопрос. Сбрасываю состояние.`);
+          await this.resetToChatMode(userId);
+          const queryResponse = await this.aiService.getAiResponse(generateDto.prompt, user.id);
+          return res.status(200).json({ aiResponse: queryResponse.content });
+
+        case 'repeat_request':
+          console.log(`[Controller] Пользователь повторил запрос на генерацию. Повторяем последний ответ.`);
+          const history = await this.chatHistoryService.getHistoryForUser(userId);
+          const lastModelMessage = history.filter(m => m.role === 'model').pop();
+          
+          // --- ИСПРАВЛЕНИЕ: ДОБАВЛЯЕМ ПРОВЕРКУ ---
+          if (lastModelMessage && lastModelMessage.content) {
+            try {
+              // Просто возвращаем последнее сообщение бота, которое, скорее всего, и было списком вопросов.
+              const lastResponsePayload = JSON.parse(lastModelMessage.content);
+              return res.status(200).json({ aiResponse: lastResponsePayload });
+            } catch (e) {
+              // Если последнее сообщение не JSON, значит что-то пошло не так, начинаем заново.
+              console.warn("[Controller] Последнее сообщение модели не было валидным JSON. Начинаю диалог заново.");
+              await this.resetToChatMode(userId);
+              return this.chatWithAssistant(req, generateDto, res);
+            }
+          }
       }
+      
     }
 
     

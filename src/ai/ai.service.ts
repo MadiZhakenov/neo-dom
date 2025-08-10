@@ -475,18 +475,20 @@ export class AiService implements OnModuleInit {
    * @param currentTemplateName - Имя шаблона, который сейчас заполняется.
    * @returns Объект с определенным намерением ('provide_data', 'switch_document', 'general_query').
    */
-  async analyzeInputDuringDataCollection(prompt: string, currentTemplateName: string): Promise<{ intent: 'provide_data' | 'switch_document' | 'general_query'; templateName?: string }> {
+  async analyzeInputDuringDataCollection(prompt: string, currentTemplateName: string): Promise<{ intent: 'provide_data' | 'switch_document' | 'general_query'| 'repeat_request'; templateName?: string }> {
     const intentAnalysisPrompt = `
       Твоя задача - проанализировать сообщение пользователя, который сейчас заполняет документ "${currentTemplateName}". Определи его намерение.
       Возможные намерения:
       1. "provide_data": Пользователь предоставляет запрошенные данные.
       2. "switch_document": Пользователь хочет отменить текущий процесс и начать заполнять ДРУГОЙ документ.
-      3. "general_query": Сообщение не является ни данными, ни запросом на смену документа (вопрос, отмена, приветствие).
+      3.  "repeat_request": Пользователь, похоже, отправил свой ПЕРВОНАЧАЛЬНЫЙ запрос еще раз. (Определяй это, если новый запрос очень похож на название текущего документа).
+      4. "general_query": Сообщение не является ни данными, ни запросом на смену документа (вопрос, отмена, приветствие).
       Список ВСЕХ доступных документов:
       ${this._templateNames.map(t => `- "${t.humanName}" (файл: ${t.fileName})`).join('\n')}
       Проанализируй запрос и верни ТОЛЬКО JSON:
       - Если это данные: {"intent": "provide_data"}
       - Если это смена документа: {"intent": "switch_document", "templateName": "точное_имя_файла.docx"}
+      - Если это повторный запрос: {"intent": "repeat_request"}
       - Если общий вопрос: {"intent": "general_query"}
       Запрос пользователя: "${prompt}"
     `;
