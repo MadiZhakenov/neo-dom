@@ -74,6 +74,29 @@ export class AiController {
         case 'provide_data':
           return this.handleDocumentGeneration(user, generateDto, res);
 
+          case 'repeat_request':
+            console.log(`[Controller] Пользователь повторил запрос. Повторяем последний ответ.`);
+            const history = await this.chatHistoryService.getHistoryForUser(userId);
+            const lastModelMessage = history.filter(m => m.role === 'model').pop();
+  
+            if (lastModelMessage && lastModelMessage.content) {
+              try {
+                // Пытаемся распарсить последнее сообщение. Если это JSON с вопросами, возвращаем его.
+                const lastResponsePayload = JSON.parse(lastModelMessage.content);
+                if (lastResponsePayload.action === 'collect_data') {
+                  return res.status(200).json({ aiResponse: lastResponsePayload });
+                }
+              } catch (e) {
+                // Если это не JSON, значит, это был обычный текстовый ответ. Просто повторяем его.
+                return res.status(200).json({ aiResponse: lastModelMessage.content });
+              }
+            }
+            
+            // Если по какой-то причине последнего сообщения нет, просто начинаем заново.
+            console.warn("[Controller] Не найдено последнее сообщение модели для повтора. Начинаю диалог заново.");
+            await this.resetToChatMode(userId);
+            return this.chatWithAssistant(req, generateDto, res);
+
         // 1.2. Пользователь хочет сменить документ (или повторно запрашивает тот же).
         case 'switch_document':
           console.log(`[Controller] Пользователь в состоянии WAITING_FOR_DATA запросил новый документ. Сбрасываю состояние и начинаю заново.`);
@@ -91,24 +114,25 @@ export class AiController {
           const queryResponse = await this.aiService.getAiResponse(generateDto.prompt, user.id);
           return res.status(200).json({ aiResponse: queryResponse.content });
 
-        case 'repeat_request':
-          console.log(`[Controller] Пользователь повторил запрос на генерацию. Повторяем последний ответ.`);
-          const history = await this.chatHistoryService.getHistoryForUser(userId);
-          const lastModelMessage = history.filter(m => m.role === 'model').pop();
+        // case 'repeat_request':
+        //   console.log(`[Controller] Пользователь повторил запрос на генерацию. Повторяем последний ответ.`);
+        //   const history = await this.chatHistoryService.getHistoryForUser(userId);
+        //   const lastModelMessage = history.filter(m => m.role === 'model').pop();
           
-          // --- ИСПРАВЛЕНИЕ: ДОБАВЛЯЕМ ПРОВЕРКУ ---
-          if (lastModelMessage && lastModelMessage.content) {
-            try {
-              // Просто возвращаем последнее сообщение бота, которое, скорее всего, и было списком вопросов.
-              const lastResponsePayload = JSON.parse(lastModelMessage.content);
-              return res.status(200).json({ aiResponse: lastResponsePayload });
-            } catch (e) {
-              // Если последнее сообщение не JSON, значит что-то пошло не так, начинаем заново.
-              console.warn("[Controller] Последнее сообщение модели не было валидным JSON. Начинаю диалог заново.");
-              await this.resetToChatMode(userId);
-              return this.chatWithAssistant(req, generateDto, res);
-            }
-          }
+        //   // --- ИСПРАВЛЕНИЕ: ДОБАВЛЯЕМ ПРОВЕРКУ ---
+        //   if (lastModelMessage && lastModelMessage.content) {
+        //     try {
+        //       // Просто возвращаем последнее сообщение бота, которое, скорее всего, и было списком вопросов.
+        //       const lastResponsePayload = JSON.parse(lastModelMessage.content);
+        //       return res.status(200).json({ aiResponse: lastResponsePayload });
+        //     } catch (e) {
+        //       // Если последнее сообщение не JSON, значит что-то пошло не так, начинаем заново.
+        //       console.warn("[Controller] Последнее сообщение модели не было валидным JSON. Начинаю диалог заново.");
+        //       await this.resetToChatMode(userId);
+        //       return this.chatWithAssistant(req, generateDto, res);
+        //     }
+            
+        //   }
       }
       
     }
