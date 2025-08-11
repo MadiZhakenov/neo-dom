@@ -168,7 +168,7 @@ export class DocumentAiService implements OnModuleInit {
         } else {
             // Если нужна кларификация, возвращаем ее
             const clarification = parsed.clarification || "Уточните, какой документ вам нужен?";
-            await this.chatHistoryService.addMessageToHistory(userId, prompt, clarification, ChatType.GENERAL);
+            await this.chatHistoryService.addMessageToHistory(userId, prompt, clarification, ChatType.DOCUMENT);
             return { action: 'clarification', message: clarification };
         }
     }
@@ -345,5 +345,5 @@ export class DocumentAiService implements OnModuleInit {
         }
     }
 
-    // ... методы getFieldsForTemplate, formatQuestionsForUser, extractDataForDocx ...
+   
 }
