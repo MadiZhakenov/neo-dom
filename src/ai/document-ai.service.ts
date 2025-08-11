@@ -402,36 +402,52 @@ export class DocumentAiService implements OnModuleInit {
     async extractDataForDocx(userAnswersPrompt: string, templateName: string): Promise<{ data: any; isComplete: boolean; missingFields?: string[]; intent?: string }> {
         const normalizedTemplateName = templateName.toLowerCase();
         const templateInfo = TEMPLATES_REGISTRY[normalizedTemplateName];
-        if (!templateInfo || !templateInfo.tags_in_template) {
-            throw new Error(`Шаблон "${templateName}" не найден или не настроен.`);
+        if (!templateInfo) {
+            throw new Error(`Шаблон "${templateName}" не найден.`);
         }
         const requiredTags = templateInfo.tags_in_template;
 
         const prompt = `
-            Твоя роль - сверхточный робот-аналитик JSON.
-    
-            **ПЛАН ДЕЙСТВИЙ:**
-            1.  **АНАЛИЗ НАМЕРЕНИЯ:**
-                -   **ЕСЛИ** текст — это команда отмены ("забей", "отмена", "керек жок", "не хочу"), **ТОГДА** верни JSON: \`{"intent": "cancel"}\`.
-                -   **ЕСЛИ** текст — это явное желание начать новый документ ("хочу другой документ", "создать новый акт"), **ТОГДА** верни JSON: \`{"intent": "new_document"}\`.
-                -   **ЕСЛИ** текст — это вопрос, не связанный с данными ("а что такое акт?", "устидеги коршиден су басты"), **ТОГДА** верни JSON: \`{"intent": "query"}\`.
-                -   **ИНАЧЕ** (если это данные), переходи к шагу 2.
-    
-            2.  **ИЗВЛЕЧЕНИЕ ДАННЫХ:**
-                -   Проанализируй 'Текст для анализа'.
-                -   Для КАЖДОГО тега из 'Списка тегов' найди значение.
-                -   Сформируй JSON. "isComplete" должно быть 'true' ТОЛЬКО если найдены ВСЕ теги.
-    
-            **ПРАВИЛО:** "isComplete" должно быть 'true' ТОЛЬКО тогда, когда ты нашел значения для ВСЕХ тегов. Если не нашел хотя бы ОДИН, "isComplete" ДОЛЖНО быть 'false', а сам тег должен быть в массиве "missingFields".
-            
-            Список требуемых тегов для извлечения:
-            ${JSON.stringify(requiredTags, null, 2)}
-            
-            Текст для анализа:
-            "${userAnswersPrompt}"
-            
-            Верни ответ СТРОГО в формате JSON. Без пояснений и \`\`\`json.
-            `;
+        Твоя роль - сверхточный робот-аналитик JSON. Твоя работа критически важна.
+
+        **ПЛАН ДЕЙСТВИЙ:**
+        1.  **АНАЛИЗ НАМЕРЕНИЯ:**
+            -   **ЕСЛИ** текст — это команда отмены ("отмена", "не хочу", "керек жок"), верни JSON: \`{"intent": "cancel"}\`.
+            -   **ЕСЛИ** текст — это желание начать новый документ ("хочу другой документ"), верни JSON: \`{"intent": "new_document"}\`.
+            -   **ЕСЛИ** текст — это вопрос не по теме или бессмыслица ("а что такое акт?", "сосед затопил", "пофиг"), верни JSON: \`{"intent": "query"}\`.
+            -   **ИНАЧЕ**, переходи к ИЗВЛЕЧЕНИЮ ДАННЫХ.
+
+        2.  **ИЗВЛЕЧЕНИЕ ДАННЫХ:**
+            -   Проанализируй 'Текст для анализа'.
+            -   Для КАЖДОГО тега из 'Списка тегов' найди значение.
+            -   "isComplete" должно быть 'true' ТОЛЬКО если найдены ВСЕ теги. Если не нашел хотя бы ОДИН, "isComplete" ДОЛЖНО быть 'false', а сам тег должен быть в массиве "missingFields".
+
+        **--- НОВЫЙ, УСИЛЕННЫЙ ПРИМЕР ДЛЯ СПИСКОВ ---**
+        ПРИМЕР 'Текста для анализа': "Құжаттар: Техникалық тапсырма №01-ТТ/2024 — жөндеуге арналған. Жөндеу жобасы №ПЖ-17/2024 — қасбетті сырлау. Смета №СМ-2024/88."
+        ПРИМЕР 'Списка тегов': ["docs", "name", "notes"]
+        ТВОЙ ПРАВИЛЬНЫЙ РЕЗУЛЬТАТ для этого примера:
+        {
+            "isComplete": true, // (предположим, что все остальные теги тоже найдены)
+            "missingFields": [],
+            "data": {
+                "docs": [
+                    { "name": "Техникалық тапсырма №01-ТТ/2024", "notes": "жөндеуге арналған" },
+                    { "name": "Жөндеу жобасы №ПЖ-17/2024", "notes": "қасбетті сырлау" },
+                    { "name": "Смета №СМ-2024/88", "notes": "" }
+                ]
+            }
+        }
+        **--- КОНЕЦ ПРИМЕРА ---**
+        
+        Теперь выполни задачу для реальных данных.
+        
+        Список требуемых тегов: ${JSON.stringify(requiredTags)}
+        
+        Текст для анализа: "${userAnswersPrompt}"
+        
+        Верни ответ СТРОГО в формате JSON.
+        `;
+
 
         try {
             const rawResponse = await this.generateWithRetry(prompt);
@@ -444,24 +460,14 @@ export class DocumentAiService implements OnModuleInit {
             const parsedResponse = JSON.parse(jsonMatch[0]);
 
             if (parsedResponse.isComplete === false && !parsedResponse.intent && (!parsedResponse.missingFields || parsedResponse.missingFields.length === 0)) {
-                console.warn("AI указал на неполные данные, но не предоставил список. Заполняем всеми тегами.");
-                // --- НАЧАЛО ИСПРАВЛЕНИЯ 1 ---
-                const allFields = await this.getFieldsForTemplate(templateName);
-                // Преобразуем массив объектов в массив строк (тегов)
-                parsedResponse.missingFields = allFields.map(field => field.tag);
-                // --- КОНЕЦ ИСПРАВЛЕНИЯ 1 ---
+                parsedResponse.missingFields = requiredTags;
             }
 
             return parsedResponse;
 
         } catch (error) {
             console.error('Критическая ошибка при извлечении данных:', error);
-            // --- НАЧАЛО ИСПРАВЛЕНИЯ 2 ---
-            const allFields = await this.getFieldsForTemplate(templateName);
-            // Преобразуем массив объектов в массив строк (тегов)
-            const allTags = allFields.map(field => field.tag);
-            return { isComplete: false, missingFields: allTags, data: {} };
-            // --- КОНЕЦ ИСПРАВЛЕНИЯ 2 ---
+            return { isComplete: false, missingFields: requiredTags, data: {} };
         }
     }
 }
