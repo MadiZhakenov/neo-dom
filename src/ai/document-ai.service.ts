@@ -184,7 +184,7 @@ export class DocumentAiService implements OnModuleInit {
                             const message = language === 'kz'
                                 ? "Сіз осы айдағы тегін құжат жасау лимитіңізді пайдаланып қойдыңыз. Лимитсіз генерация үшін 'Премиум' тарифіне өтіңіз."
                                 : "Вы уже использовали свой лимит на создание бесплатного документа в этом месяце. Для безлимитной генерации, пожалуйста, перейдите на тариф 'Премиум'.";
-                            
+
                             // Важно: также сбрасываем состояние, чтобы пользователь не застрял
                             await this.usersService.resetDocChatState(userId);
                             return { type: 'chat', content: { action: 'clarification', message } };
@@ -192,36 +192,32 @@ export class DocumentAiService implements OnModuleInit {
                     }
                 }
                 // --- КОНЕЦ БЛОКА ПРОВЕРКИ ЛИМИТОВ ---
-            
+
                 const docxBuffer = this.docxService.generateDocx(user.doc_chat_template, extractionResult.data);
-                
-                // --- НАЧАЛО ЛОГИКИ СОХРАНЕНИЯ ФАЙЛА НА ДИСК И В БД ---
+
+                // --- НАЧАЛО ИЗМЕНЕНИЯ ПУТИ ---
                 const fileId = uuidv4();
-                const storageDir = path.join(process.cwd(), 'generated_documents');
-                // Убедимся, что директория существует
+                // Используем абсолютный путь, который Render понимает для дисков
+                const storageDir = `/var/data/generated_documents`;
                 if (!fs.existsSync(storageDir)) {
                     fs.mkdirSync(storageDir, { recursive: true });
                 }
                 const storagePath = path.join(storageDir, `${fileId}.docx`);
-                fs.writeFileSync(storagePath, docxBuffer);
-            
+                // --- КОНЕЦ ИЗМЕНЕНИЯ ПУТИ ---
+
                 // Сохраняем метаданные в БД
-                const newDoc = this.generatedDocRepo.create({
-                    id: fileId,
-                    user: user,
-                    originalFileName: `${user.doc_chat_template}`,
-                    storagePath: `generated_documents/${fileId}`
-                });
+                fs.writeFileSync(storagePath, docxBuffer);
+                const newDoc = this.generatedDocRepo.create({ id: fileId, user: user, originalFileName: user.doc_chat_template, storagePath: storagePath });
                 await this.generatedDocRepo.save(newDoc);
                 // --- КОНЕЦ ЛОГИКИ СОХРАНЕНИЯ ФАЙЛА ---
-            
+
                 await this.usersService.resetDocChatState(userId);
-            
+
                 // Обновляем дату генерации ТОЛЬКО для базового тарифа после успешного создания
                 if (user.tariff === 'Базовый') {
                     await this.usersService.setLastGenerationDate(user.id, new Date());
                 }
-            
+
                 // --- ИЗМЕНЕНИЕ ОТВЕТА ДЛЯ ИСТОРИИ ЧАТА ---
                 // Формируем специальный JSON для сохранения в историю чата
                 const modelResponseContent = JSON.stringify({
@@ -229,17 +225,17 @@ export class DocumentAiService implements OnModuleInit {
                     fileId: fileId,
                     fileName: `${user.doc_chat_template}.docx`
                 });
-                
+
                 // Этот контент будет сохранен в историю чата в контроллере
                 // ВАЖНО: Мы должны передать его обратно в контроллер.
                 // Для этого добавим его в возвращаемый объект, чтобы контроллер мог его прочитать.
-                
-                return { 
-                    type: 'file', 
-                    content: docxBuffer, 
+
+                return {
+                    type: 'file',
+                    content: docxBuffer,
                     fileName: user.doc_chat_template,
                     // Добавляем специальное поле для истории чата
-                    historyContent: modelResponseContent 
+                    historyContent: modelResponseContent
                 };
             }
 

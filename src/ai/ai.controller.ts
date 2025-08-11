@@ -123,7 +123,7 @@ export class AiController {
       throw new NotFoundException('Документ не найден или у вас нет прав на его скачивание.');
     }
 
-    const filePath = path.join(process.cwd(), doc.storagePath);
+    const filePath = doc.storagePath; 
     const file = createReadStream(filePath);
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
