@@ -146,76 +146,90 @@ export class DocumentAiService implements OnModuleInit {
     async processDocumentMessage(prompt: string, user: User): Promise<{ type: 'chat' | 'file'; content: any; fileName?: string }> {
         const userId = user.id;
     
+        // --- НАЧАЛО НОВОЙ ЛОГИКИ ---
+    
+        // Если пользователь уже в процессе генерации, обрабатываем ответ
         if (user.doc_chat_template) {
-            const { data, isComplete, missingFields, intent } = await this.extractDataForDocx(prompt, user.doc_chat_template);
+            const extractionResult = await this.extractDataForDocx(prompt, user.doc_chat_template);
     
-            // Сценарий "Отмена"
-            if (intent === 'cancel') {
-                await this.usersService.resetDocChatState(userId);
-                const responseMessage = "Действие отменено. Какой документ вы хотели бы создать теперь?";
-                return { type: 'chat', content: { action: 'clarification', message: responseMessage } };
-            }
+            // Обработка намерений (отмена, новый документ, вопрос)
+            if (extractionResult.intent) {
+                await this.usersService.resetDocChatState(userId); // Сбрасываем состояние для всех намерений
     
-            // --- НАЧАЛО ИСПРАВЛЕНИЯ 2 ---
-    
-            // Сценарий "Хочу новый документ"
-            if (intent === 'new_document') {
-                // Сбрасываем состояние и ПОВТОРНО ОБРАБАТЫВАЕМ тот же промпт, но уже в чистом состоянии
-                await this.usersService.resetDocChatState(userId);
-                // Вместо рекурсивного вызова, просто дублируем логику поиска шаблона
-                const intentResult = await this.findTemplate(prompt, userId);
-                if (intentResult.templateName) {
-                    const questions = await this.getQuestionsForTemplate(intentResult.templateName);
-                    await this.usersService.setDocChatState(userId, intentResult.templateName, crypto.randomBytes(16).toString('hex'));
-                    return { type: 'chat', content: questions };
-                } else {
-                    const clarification = intentResult.clarification || "Уточните, какой документ вам нужен?";
-                    return { type: 'chat', content: { action: 'clarification', message: clarification } };
+                if (extractionResult.intent === 'cancel') {
+                    return { type: 'chat', content: { action: 'clarification', message: "Действие отменено. Какой документ вы хотите создать теперь?" } };
+                }
+                if (extractionResult.intent === 'query') {
+                    return { type: 'chat', content: { action: 'clarification', message: "Это похоже на общий вопрос. Для консультаций воспользуйтесь 'ИИ-Чатом'. Если хотите создать новый документ - просто назовите его." } };
+                }
+                if (extractionResult.intent === 'new_document') {
+                    // Если пользователь хочет новый документ, мы сбросили состояние и теперь обработаем этот же промпт в блоке ниже
                 }
             }
-    
-            // Сценарий "Отвлеченный вопрос" - теперь он тоже сбрасывает состояние
-            if (intent === 'query') {
-                await this.usersService.resetDocChatState(userId); // Сбрасываем состояние
-                const responseMessage = "Это похоже на общий вопрос. Для консультаций, пожалуйста, воспользуйтесь окном 'ИИ-Чат'. Если вы хотите создать новый документ, просто назовите его.";
-                return { type: 'chat', content: { action: 'clarification', message: responseMessage } };
+            // Если это были данные для заполнения
+            else if (extractionResult.isComplete) {
+                const docxBuffer = this.docxService.generateDocx(user.doc_chat_template, extractionResult.data);
+                await this.usersService.resetDocChatState(userId);
+                return { type: 'file', content: docxBuffer, fileName: user.doc_chat_template };
             }
-            
-            // --- КОНЕЦ ИСПРАВЛЕНИЯ 2 ---
-    
-            if (!isComplete) {
-                const missingQuestions = (missingFields || []).map(f => f.question).join('\n- ');
-                const responseMessage = `Для завершения, предоставьте:\n\n- ${missingQuestions}`;
+            // Если данные неполные, но они есть
+            else if (extractionResult.missingFields && extractionResult.missingFields.length > 0) {
+                const missingQuestions = extractionResult.missingFields.map(f => f.question).join('\n- ');
+                const responseMessage = `Отлично, я это записал. Для завершения, предоставьте:\n\n- ${missingQuestions}`;
                 return { type: 'chat', content: { action: 'collect_data', message: responseMessage } };
             }
-    
-            const docxBuffer = this.docxService.generateDocx(user.doc_chat_template, data);
-            await this.usersService.resetDocChatState(userId);
-            return { type: 'file', content: docxBuffer, fileName: user.doc_chat_template };
         }
     
-        // Этот блок остается для первичного определения шаблона
+        // Этот блок выполняется для всех новых запросов (и для `new_document`)
         const intentResult = await this.findTemplate(prompt, userId);
-    
-        if (intentResult.templateName) {
-            const questions = await this.getQuestionsForTemplate(intentResult.templateName);
-            await this.usersService.setDocChatState(userId, intentResult.templateName, crypto.randomBytes(16).toString('hex'));
-            return { type: 'chat', content: questions };
-        } else {
-            const clarification = intentResult.clarification || "Уточните, какой документ вам нужен?";
-            return { type: 'chat', content: { action: 'clarification', message: clarification } };
+        if (!intentResult.templateName) {
+            return { type: 'chat', content: { action: 'clarification', message: intentResult.clarification || "Уточните, какой документ вам нужен?" } };
         }
+    
+        // --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ ДЛЯ ONE-SHOT ---
+        // Попытка извлечь данные СРАЗУ
+        const extractionResult = await this.extractDataForDocx(prompt, intentResult.templateName);
+        
+        // Если все данные удалось извлечь за один раз
+        if (extractionResult.isComplete) {
+            const docxBuffer = this.docxService.generateDocx(intentResult.templateName, extractionResult.data);
+            return { type: 'file', content: docxBuffer, fileName: intentResult.templateName };
+        }
+    
+        // Если данные неполные или их не было, задаем вопросы
+        const questions = await this.getQuestionsForTemplate(intentResult.templateName);
+        await this.usersService.setDocChatState(userId, intentResult.templateName, crypto.randomBytes(16).toString('hex'));
+        
+        // Если данные были частично извлечены, сообщаем об этом
+        if (extractionResult.missingFields && extractionResult.missingFields.length > 0) {
+            const missingQuestions = extractionResult.missingFields.map(f => f.question).join('\n- ');
+            return { type: 'chat', content: { action: 'collect_data', message: `Отлично! Я уже понял часть информации. Теперь, чтобы закончить, предоставьте:\n\n- ${missingQuestions}` }};
+        }
+    
+        // Если данных не было, просто задаем все вопросы
+        return { type: 'chat', content: questions };
     }
     
       private async findTemplate(prompt: string, userId: number): Promise<{ templateName?: string; clarification?: string }> {
         const history = await this.chatHistoryService.getHistory(userId, ChatType.DOCUMENT);
+        // В методе findTemplate
         const intentDetectionPrompt = `
-          Твоя задача - найти в "Списке шаблонов" тот, который лучше всего соответствует "Запросу".
-          - ЕСЛИ найден ОДИН -> верни ТОЛЬКО JSON: {"templateName": "имя_файла.docx"}
-          - ЕСЛИ найдено НЕСКОЛЬКО или НИ ОДНОГО -> верни ТОЛЬКО JSON: {"templateName": null, "clarification": "текст_уточняющего_вопроса_с_вариантами"}
-          Список шаблонов:
-          ${this._templateNames.map(t => `- "${t.humanName}" (${t.fileName})`).join('\n')}
-          Запрос: "${prompt}"
+        Твоя задача - проанализировать "Запрос" пользователя и "Историю чата", чтобы определить, какой документ он хочет.
+
+        ПЛАН ДЕЙСТВИЙ:
+        1.  **ПРОВЕРКА НА ОТМЕНУ:** Если запрос похож на отмену ("забей", "отмена", "не надо", "передумал"), верни ТОЛЬКО JSON: {"templateName": null, "clarification": "Действие отменено. Какой документ вы хотели бы создать теперь?"}
+        2.  **АНАЛИЗ ЗАПРОСА:**
+            -   **ЕСЛИ** в запросе однозначно указан ОДИН шаблон из "Списка шаблонов" -> верни ТОЛЬКО JSON: {"templateName": "имя_файла.docx"}
+            -   **ЕСЛИ** запрос неоднозначен ("нужен акт"), но в **последнем сообщении истории** ты предлагал варианты -> проанализируй ответ пользователя ("первый", "второй вариант") и выбери шаблон из предложенного тобой списка. Верни JSON с именем файла.
+            -   **ЕСЛИ** найдено НЕСКОЛЬКО подходящих шаблонов или НИ ОДНОГО -> верни ТОЛЬКО JSON: {"templateName": null, "clarification": "текст_уточняющего_вопроса_с_вариантами_из_списка"}
+
+        Список шаблонов:
+        ${this._templateNames.map(t => `- "${t.humanName}" (${t.fileName})`).join('\n')}
+        
+        История чата:
+        ${JSON.stringify(history)}
+
+        Запрос: "${prompt}"
         `;
         
         const rawResponse = await this.generateWithRetry(intentDetectionPrompt, history);
