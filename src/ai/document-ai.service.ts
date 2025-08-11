@@ -32,7 +32,7 @@ export class DocumentAiService implements OnModuleInit {
         private readonly usersService: UsersService,
         private readonly docxService: DocxService,
         private readonly chatAiService: ChatAiService,
-        
+
     ) { }
 
     /**
@@ -74,7 +74,7 @@ export class DocumentAiService implements OnModuleInit {
         console.log(`[AI Service] Загружено и провалидировано ${this._templateNames.length} шаблонов.`);
     }
 
-    
+
     private async initializeVectorStore(apiKey: string) {
         console.log('[AI Service] Инициализация векторной базы знаний...');
         try {
@@ -145,22 +145,21 @@ export class DocumentAiService implements OnModuleInit {
 
     async processDocumentMessage(prompt: string, user: User): Promise<{ type: 'chat' | 'file'; content: any; fileName?: string }> {
         const userId = user.id;
-    
+
         // --- БЛОК 1: ПОЛЬЗОВАТЕЛЬ УЖЕ В ПРОЦЕССЕ ЗАПОЛНЕНИЯ ---
         if (user.doc_chat_template) {
             const extractionResult = await this.extractDataForDocx(prompt, user.doc_chat_template);
-    
+
             // Обработка четких намерений: отмена, новый документ, вопрос
             if (extractionResult.intent) {
                 await this.usersService.resetDocChatState(userId); // Сбрасываем состояние
-                if (extractionResult.intent === 'cancel') {
-                    return { type: 'chat', content: { action: 'clarification', message: "Действие отменено. Какой документ вы хотели бы создать теперь?" } };
+                const clarificationMessage = "Действие отменено. Что будем делать дальше?\n\n" + this._getFormattedTemplateList();
+
+                if (extractionResult.intent === 'cancel' || extractionResult.intent === 'new_document') {
+                    return { type: 'chat', content: { action: 'clarification', message: clarificationMessage } };
                 }
                 if (extractionResult.intent === 'query') {
                     return { type: 'chat', content: { action: 'clarification', message: "Это похоже на общий вопрос. Для консультаций воспользуйтесь 'ИИ-Чатом'." } };
-                }
-                if (extractionResult.intent === 'new_document') {
-                     // Состояние сброшено, промпт будет обработан в Блоке 2 как новый
                 }
             }
             // Если это были данные для заполнения
@@ -174,7 +173,7 @@ export class DocumentAiService implements OnModuleInit {
                     }
                     return { type: 'file', content: docxBuffer, fileName: user.doc_chat_template };
                 }
-    
+
                 // --- НАЧАЛО ГЛАВНОГО ИСПРАВЛЕНИЯ ---
                 const missingTags = extractionResult.missingFields;
                 // Проверяем, что AI вернул список недостающих тегов
@@ -185,7 +184,7 @@ export class DocumentAiService implements OnModuleInit {
                     const missingFieldsWithQuestions = allFields.filter(field => missingTags.includes(field.tag));
                     // Формируем список вопросов
                     const missingQuestions = missingFieldsWithQuestions.map(f => f.question).join('\n- ');
-    
+
                     const responseMessage = `Отлично, я это записал. Для завершения, предоставьте:\n\n- ${missingQuestions}`;
                     return { type: 'chat', content: { action: 'collect_data', message: responseMessage } };
                 } else {
@@ -193,61 +192,71 @@ export class DocumentAiService implements OnModuleInit {
                     const questions = await this.getQuestionsForTemplate(user.doc_chat_template);
                     // В questions уже есть action и templateName, нам нужно только дополнить текст вопроса
                     const fullQuestionText = "Извините, я не смог разобрать ваш ответ. Давайте попробуем еще раз.\n\n" + questions.questions;
-                    return { type: 'chat', content: { ...questions, questions: fullQuestionText }};
+                    return { type: 'chat', content: { ...questions, questions: fullQuestionText } };
                 }
                 // --- КОНЕЦ ГЛАВНОГО ИСПРАВЛЕНИЯ ---
             }
         }
-    
+
         // --- БЛОК 2: ПОИСК ШАБЛОНА ДЛЯ НОВОГО ЗАПРОСА ---
         // Этот блок выполняется, если нет активного шаблона ИЛИ если пользователь захотел новый документ.
         const intentResult = await this.findTemplate(prompt, userId);
-    
+
         // Если шаблон не найден, просим уточнить
         if (!intentResult.templateName) {
-            return { type: 'chat', content: { action: 'clarification', message: intentResult.clarification || "Уточните, какой документ вам нужен?" } };
-        }
-    
+            const message = (intentResult.clarification || "Уточните, какой документ вам нужен?") + "\n\n" + this._getFormattedTemplateList();
+            return { type: 'chat', content: { action: 'clarification', message: message } };
+        }        
+
         // Если шаблон найден, устанавливаем состояние и задаем ПОЛНЫЙ список вопросов
         const questions = await this.getQuestionsForTemplate(intentResult.templateName);
         await this.usersService.setDocChatState(userId, intentResult.templateName, crypto.randomBytes(16).toString('hex'));
-    
+
         return { type: 'chat', content: questions };
     }
-    
-      private async findTemplate(prompt: string, userId: number): Promise<{ templateName?: string; clarification?: string }> {
+
+    private async findTemplate(prompt: string, userId: number): Promise<{ templateName?: string; clarification?: string }> {
         const history = await this.chatHistoryService.getHistory(userId, ChatType.DOCUMENT);
         // В методе findTemplate
+
         const intentDetectionPrompt = `
-        Твоя задача - проанализировать "Запрос" пользователя и "Историю чата", чтобы определить, какой документ он хочет.
+  Твоя задача - проанализировать "Запрос" пользователя и "Историю чата", чтобы определить, какой документ он хочет.
 
-        ПЛАН ДЕЙСТВИЙ:
-        1.  **ПРОВЕРКА НА ОТМЕНУ:** Если запрос похож на отмену ("забей", "отмена", "не надо", "передумал"), верни ТОЛЬКО JSON: {"templateName": null, "clarification": "Действие отменено. Какой документ вы хотели бы создать теперь?"}
-        2.  **АНАЛИЗ ЗАПРОСА:**
-            -   **ЕСЛИ** в запросе однозначно указан ОДИН шаблон из "Списка шаблонов" -> верни ТОЛЬКО JSON: {"templateName": "имя_файла.docx"}
-            -   **ЕСЛИ** запрос неоднозначен ("нужен акт"), но в **последнем сообщении истории** ты предлагал варианты -> проанализируй ответ пользователя ("первый", "второй вариант") и выбери шаблон из предложенного тобой списка. Верни JSON с именем файла.
-            -   **ЕСЛИ** найдено НЕСКОЛЬКО подходящих шаблонов или НИ ОДНОГО -> верни ТОЛЬКО JSON: {"templateName": null, "clarification": "текст_уточняющего_вопроса_с_вариантами_из_списка"}
+  ПЛАН ДЕЙСТВИЙ:
+  1.  **ПРОВЕРКА НА SMALL TALK:** Если "Запрос" - это простое приветствие ("привет", "салем", "добрый день") или вопрос о тебе ("кто ты?"), НЕ ИЩИ шаблон. Сразу верни JSON: {"templateName": null, "clarification": "Привет! Я ваш ИИ-помощник по документам. Какой документ вы хотели бы создать?"}
+  2.  **ПРОВЕРКА НА ОТМЕНУ:** Если запрос похож на отмену ("забей", "отмена", "не надо", "передумал"), верни ТОЛЬКО JSON: {"templateName": null, "clarification": "Действие отменено. Какой документ вы хотели бы создать теперь?"}
+  3.  **АНАЛИЗ ЗАПРОСА:**
+      -   **ЕСЛИ** в запросе однозначно указан ОДИН шаблон из "Списка шаблонов" -> верни ТОЛЬКО JSON: {"templateName": "имя_файла.docx"}
+      -   **ЕСЛИ** запрос неоднозначен ("нужен акт"), но в **последнем сообщении истории** ты предлагал варианты -> проанализируй ответ пользователя ("первый", "второй вариант") и выбери шаблон из предложенного тобой списка. Верни JSON с именем файла.
+      -   **ЕСЛИ** найдено НЕСКОЛЬКО подходящих шаблонов или НИ ОДНОГО (и это не small talk) -> верни ТОЛЬКО JSON: {"templateName": null, "clarification": "Пожалуйста, уточните, какой документ вам нужен."}
 
-        Список шаблонов:
-        ${this._templateNames.map(t => `- "${t.humanName}" (${t.fileName})`).join('\n')}
-        
-        История чата:
-        ${JSON.stringify(history)}
+  Список шаблонов:
+  ${this._templateNames.map(t => `- "${t.humanName}" (${t.fileName})`).join('\n')}
+  
+  История чата:
+  ${JSON.stringify(history)}
 
-        Запрос: "${prompt}"
-        `;
-        
+  Запрос: "${prompt}"
+`;
+
         const rawResponse = await this.generateWithRetry(intentDetectionPrompt, history);
         const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
         if (!jsonMatch) { return { clarification: "Извините, не удалось распознать ваш запрос." }; }
         return JSON.parse(jsonMatch[0]);
-      }
-    
-      private async getQuestionsForTemplate(templateName: string): Promise<any> {
+    }
+
+    private async getQuestionsForTemplate(templateName: string): Promise<any> {
         const fields = await this.getFieldsForTemplate(templateName);
         const questions = await this.formatQuestionsForUser(fields, templateName);
         return { action: 'collect_data', templateName, questions };
-      }
+    }
+
+    private _getFormattedTemplateList(): string {
+        const templateList = this._templateNames
+            .map(t => `* ${t.humanName}`)
+            .join('\n');
+        return `Вот список доступных документов:\n\n${templateList}`;
+    }
 
 
     /**
@@ -371,14 +380,14 @@ export class DocumentAiService implements OnModuleInit {
      */
     async extractDataForDocx(userAnswersPrompt: string, templateName: string): Promise<{ data: any; isComplete: boolean; missingFields?: { tag: string; question: string; }[]; intent?: string }> {
         // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
-            const normalizedTemplateName = templateName.toLowerCase();
-            const templateInfo = TEMPLATES_REGISTRY[normalizedTemplateName];
-            if (!templateInfo || !templateInfo.tags_in_template) {
-                throw new Error(`Шаблон "${templateName}" не найден или не настроен.`);
-            }
-            const requiredTags = templateInfo.tags_in_template;
-            // --- ФИНАЛЬНАЯ ВЕРСИЯ ПРОМПТА С УТОЧНЕНИЕМ ДЛЯ МАССИВОВ ---
-            const prompt = `
+        const normalizedTemplateName = templateName.toLowerCase();
+        const templateInfo = TEMPLATES_REGISTRY[normalizedTemplateName];
+        if (!templateInfo || !templateInfo.tags_in_template) {
+            throw new Error(`Шаблон "${templateName}" не найден или не настроен.`);
+        }
+        const requiredTags = templateInfo.tags_in_template;
+        // --- ФИНАЛЬНАЯ ВЕРСИЯ ПРОМПТА С УТОЧНЕНИЕМ ДЛЯ МАССИВОВ ---
+        const prompt = `
             Твоя роль - сверхточный робот-аналитик JSON. Твоя работа критически важна.
     
             **ПЛАН ДЕЙСТВИЙ:**
@@ -442,44 +451,44 @@ export class DocumentAiService implements OnModuleInit {
             
             Верни ответ СТРОГО в формате JSON. Без пояснений и \`\`\`json.
             `;
-    
-            try {
-                const rawResponse = await this.generateWithRetry(prompt);
-                const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-                if (!jsonMatch) {
-                  console.error("AI не вернул валидный JSON. Ответ:", rawResponse);
-                  throw new Error("Не удалось извлечь данные.");
-                }
-        
-                let parsedResponse: any;
-                try {
-                    parsedResponse = JSON.parse(jsonMatch[0]);
-                } catch (parseError) {
-                    console.error("Ошибка парсинга JSON от AI:", parseError, "Ответ модели:", jsonMatch[0]);
-                    throw new Error("Не удалось обработать ответ AI.");
-                }
-                
-                // Если AI говорит, что данные неполные, но не говорит, какие именно,
-                // мы запрашиваем у него полный список вопросов заново.
-                if (parsedResponse.isComplete === false && (!parsedResponse.missingFields || parsedResponse.missingFields.length === 0)) {
-                    // Добавим проверку на intent, чтобы не запрашивать поля при отмене
-                    if (parsedResponse.intent !== 'cancel' && parsedResponse.intent !== 'query') {
-                        console.warn("AI указал на неполные данные, но не предоставил список. Запрашиваем все поля заново.");
-                        const allFields = await this.getFieldsForTemplate(templateName);
-                        parsedResponse.missingFields = allFields;
-                    }
-                }
-                
-                return parsedResponse;
-        
-            } catch (error) {
-                console.error('Критическая ошибка при извлечении данных:', error);
-                // В случае любой ошибки, мы не падаем, а вежливо просим пользователя
-                // предоставить данные заново, показывая ему все вопросы.
-                const allFields = await this.getFieldsForTemplate(templateName);
-                return { isComplete: false, missingFields: allFields, data: {} };
+
+        try {
+            const rawResponse = await this.generateWithRetry(prompt);
+            const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) {
+                console.error("AI не вернул валидный JSON. Ответ:", rawResponse);
+                throw new Error("Не удалось извлечь данные.");
             }
-          }
+
+            let parsedResponse: any;
+            try {
+                parsedResponse = JSON.parse(jsonMatch[0]);
+            } catch (parseError) {
+                console.error("Ошибка парсинга JSON от AI:", parseError, "Ответ модели:", jsonMatch[0]);
+                throw new Error("Не удалось обработать ответ AI.");
+            }
+
+            // Если AI говорит, что данные неполные, но не говорит, какие именно,
+            // мы запрашиваем у него полный список вопросов заново.
+            if (parsedResponse.isComplete === false && (!parsedResponse.missingFields || parsedResponse.missingFields.length === 0)) {
+                // Добавим проверку на intent, чтобы не запрашивать поля при отмене
+                if (parsedResponse.intent !== 'cancel' && parsedResponse.intent !== 'query') {
+                    console.warn("AI указал на неполные данные, но не предоставил список. Запрашиваем все поля заново.");
+                    const allFields = await this.getFieldsForTemplate(templateName);
+                    parsedResponse.missingFields = allFields;
+                }
+            }
+
+            return parsedResponse;
+
+        } catch (error) {
+            console.error('Критическая ошибка при извлечении данных:', error);
+            // В случае любой ошибки, мы не падаем, а вежливо просим пользователя
+            // предоставить данные заново, показывая ему все вопросы.
+            const allFields = await this.getFieldsForTemplate(templateName);
+            return { isComplete: false, missingFields: allFields, data: {} };
+        }
+    }
 
 
 }
