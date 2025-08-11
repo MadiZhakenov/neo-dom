@@ -146,49 +146,61 @@ export class DocumentAiService implements OnModuleInit {
     async processDocumentMessage(prompt: string, user: User): Promise<{ type: 'chat' | 'file'; content: any; fileName?: string }> {
         const userId = user.id;
     
-        // --- БЛОК 1: ОБРАБОТКА ДАННЫХ, КОГДА ШАБЛОН УЖЕ АКТИВЕН ---
+        // --- БЛОК 1: ПОЛЬЗОВАТЕЛЬ УЖЕ В ПРОЦЕССЕ ЗАПОЛНЕНИЯ ---
         if (user.doc_chat_template) {
             const extractionResult = await this.extractDataForDocx(prompt, user.doc_chat_template);
     
-            // Обработка намерений (отмена, новый документ, вопрос)
+            // Обработка четких намерений: отмена, новый документ, вопрос
             if (extractionResult.intent) {
-                await this.usersService.resetDocChatState(userId); // Сбрасываем состояние для всех намерений
-    
+                await this.usersService.resetDocChatState(userId); // Сбрасываем состояние
                 if (extractionResult.intent === 'cancel') {
                     return { type: 'chat', content: { action: 'clarification', message: "Действие отменено. Какой документ вы хотели бы создать теперь?" } };
                 }
                 if (extractionResult.intent === 'query') {
-                    return { type: 'chat', content: { action: 'clarification', message: "Это похоже на общий вопрос. Для консультаций, пожалуйста, воспользуйтесь 'ИИ-Чатом'. Если хотите создать новый документ - просто назовите его." } };
+                    return { type: 'chat', content: { action: 'clarification', message: "Это похоже на общий вопрос. Для консультаций воспользуйтесь 'ИИ-Чатом'." } };
                 }
                 if (extractionResult.intent === 'new_document') {
-                    // Если пользователь хочет новый документ, состояние сброшено.
-                    // Теперь система обработает этот же промпт в Блоке 2, как будто это новый запрос.
+                     // Состояние сброшено, промпт будет обработан в Блоке 2 как новый
                 }
-            } 
+            }
             // Если это были данные для заполнения
             else {
                 if (extractionResult.isComplete) {
                     const docxBuffer = this.docxService.generateDocx(user.doc_chat_template, extractionResult.data);
                     await this.usersService.resetDocChatState(userId);
+                    // Проверяем тариф перед успешной генерацией
+                    if (user.tariff === 'Базовый') {
+                        await this.usersService.setLastGenerationDate(user.id, new Date());
+                    }
                     return { type: 'file', content: docxBuffer, fileName: user.doc_chat_template };
-                } 
-                // --- НАДЕЖНАЯ ПРОВЕРКА НА НЕДОСТАЮЩИЕ ПОЛЯ ---
-                else if (extractionResult.missingFields && extractionResult.missingFields.length > 0) {
-                    const missingQuestions = extractionResult.missingFields.map(f => f.question).join('\n- ');
+                }
+    
+                // --- НАЧАЛО ГЛАВНОГО ИСПРАВЛЕНИЯ ---
+                const missingTags = extractionResult.missingFields;
+                // Проверяем, что AI вернул список недостающих тегов
+                if (missingTags && Array.isArray(missingTags) && missingTags.length > 0) {
+                    // Получаем ВСЕ поля с вопросами для текущего шаблона
+                    const allFields = await this.getFieldsForTemplate(user.doc_chat_template);
+                    // Фильтруем, оставляя только те, что нам нужны
+                    const missingFieldsWithQuestions = allFields.filter(field => missingTags.includes(field.tag));
+                    // Формируем список вопросов
+                    const missingQuestions = missingFieldsWithQuestions.map(f => f.question).join('\n- ');
+    
                     const responseMessage = `Отлично, я это записал. Для завершения, предоставьте:\n\n- ${missingQuestions}`;
                     return { type: 'chat', content: { action: 'collect_data', message: responseMessage } };
                 } else {
-                    // Если AI вернул isComplete: false, но не указал полей - это ошибка.
-                    // Переспрашиваем ВСЕ вопросы заново, чтобы не показывать пустой список.
+                    // Если AI не смог определить недостающие поля, переспрашиваем ВСЕ заново
                     const questions = await this.getQuestionsForTemplate(user.doc_chat_template);
-                    return { type: 'chat', content: { ...questions, message: "Извините, я не смог разобрать ваш ответ. Давайте попробуем еще раз. " + questions.questions }};
+                    // В questions уже есть action и templateName, нам нужно только дополнить текст вопроса
+                    const fullQuestionText = "Извините, я не смог разобрать ваш ответ. Давайте попробуем еще раз.\n\n" + questions.questions;
+                    return { type: 'chat', content: { ...questions, questions: fullQuestionText }};
                 }
+                // --- КОНЕЦ ГЛАВНОГО ИСПРАВЛЕНИЯ ---
             }
         }
     
         // --- БЛОК 2: ПОИСК ШАБЛОНА ДЛЯ НОВОГО ЗАПРОСА ---
         // Этот блок выполняется, если нет активного шаблона ИЛИ если пользователь захотел новый документ.
-        
         const intentResult = await this.findTemplate(prompt, userId);
     
         // Если шаблон не найден, просим уточнить
@@ -196,10 +208,10 @@ export class DocumentAiService implements OnModuleInit {
             return { type: 'chat', content: { action: 'clarification', message: intentResult.clarification || "Уточните, какой документ вам нужен?" } };
         }
     
-        // Если шаблон найден, устанавливаем состояние и задаем ПОЛНЫЙ список вопросов.
+        // Если шаблон найден, устанавливаем состояние и задаем ПОЛНЫЙ список вопросов
         const questions = await this.getQuestionsForTemplate(intentResult.templateName);
         await this.usersService.setDocChatState(userId, intentResult.templateName, crypto.randomBytes(16).toString('hex'));
-        
+    
         return { type: 'chat', content: questions };
     }
     
