@@ -1,6 +1,4 @@
 // Файл: cache-knowledge-base.js
-// ЗАМЕНИТЕ ВЕСЬ ФАЙЛ ЭТИМ КОДОМ
-
 const fs = require('fs');
 const path = require('path');
 const pdf = require('pdf-parse');

@@ -1,3 +1,4 @@
+// src\migrations\1754892316555-FinalSchema.ts
 import { MigrationInterface, QueryRunner } from "typeorm";
 
 export class FinalSchema1754892316555 implements MigrationInterface {
