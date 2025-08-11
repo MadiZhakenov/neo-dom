@@ -143,10 +143,19 @@ export class DocumentAiService implements OnModuleInit {
 
     async processDocumentMessage(prompt: string, user: User): Promise<{ type: 'chat' | 'file'; content: any; fileName?: string }> {
         const userId = user.id;
-        await this.chatHistoryService.addMessageToHistory(userId, prompt, '', ChatType.DOCUMENT);
     
         if (user.doc_chat_template) {
-          const { data, isComplete, missingFields } = await this.extractDataForDocx(prompt, user.doc_chat_template);
+            // Вызываем extractDataForDocx как и раньше
+            const { data, isComplete, missingFields, intent } = await this.extractDataForDocx(prompt, user.doc_chat_template); // Добавляем 'intent'
+          
+            // --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+            if (intent === 'cancel') {
+              await this.usersService.resetDocChatState(userId); // Сбрасываем состояние чата
+              const responseMessage = "Действие отменено. Какой документ вы хотели бы создать теперь?";
+              // Важно обновить историю сообщением об отмене
+              await this.chatHistoryService.updateLastModelMessage(userId, responseMessage, ChatType.DOCUMENT);
+              return { type: 'chat', content: { action: 'clarification', message: responseMessage } };
+            }
         
           if (!isComplete) {
             const missingQuestions = (missingFields || []).map(f => f.question).join('\n- ');
@@ -320,113 +329,117 @@ export class DocumentAiService implements OnModuleInit {
      * @param templateName - Имя файла шаблона, для которого извлекаются данные.
      * @returns Объект с флагом isComplete, извлеченными данными (data) и списком недостающих полей (missingFields).
      */
-    async extractDataForDocx(userAnswersPrompt: string, templateName: string): Promise<{ data: any; isComplete: boolean; missingFields?: { tag: string; question: string }[] }> {
-        const normalizedTemplateName = templateName.toLowerCase();
-        const templateInfo = TEMPLATES_REGISTRY[normalizedTemplateName];
-        if (!templateInfo || !templateInfo.tags_in_template) {
-            throw new Error(`Шаблон "${templateName}" не найден или не настроен.`);
-        }
-        const requiredTags = templateInfo.tags_in_template;
-        // --- ФИНАЛЬНАЯ ВЕРСИЯ ПРОМПТА С УТОЧНЕНИЕМ ДЛЯ МАССИВОВ ---
-        const prompt = `
-        Твоя роль - сверхточный робот-аналитик JSON. Твоя работа критически важна.
-
-        **ПЛАН ДЕЙСТВИЙ:**
-        1.  **АНАЛИЗ НАМЕРЕНИЯ:** Сначала определи, что хочет пользователь.
-            -   **ЕСЛИ** текст — это команда отмены ("забей", "отмена", "керек жок", "не хочу"), **ТОГДА** верни JSON: \`{"isComplete": false, "intent": "cancel"}\`.
-            -   **ЕСЛИ** текст — это вопрос, не связанный с данными (например, "а что такое акт?"), **ТОГДА** верни JSON: \`{"isComplete": false, "intent": "query"}\`.
-            -   **ИНАЧЕ** (если это данные), переходи к шагу 2.
-
-        2.  **ИЗВЛЕЧЕНИЕ ДАННЫХ:**
-            -   Проанализируй 'Текст для анализа'.
-            -   Для КАЖДОГО тега из 'Списка тегов' найди значение.
-            -   Сформируй JSON. "isComplete" должно быть 'true' ТОЛЬКО если найдены ВСЕ теги.
-
-        **--- НОВОЕ КЛЮЧЕВОЕ ПРАВИЛО ---**
-        **"isComplete" должно быть 'true' ТОЛЬКО И ИСКЛЮЧИТЕЛЬНО ТОГДА, когда ты нашел значения для ВСЕХ тегов из списка. Если ты не нашел значение хотя бы для ОДНОГО тега, "isComplete" ДОЛЖНО быть 'false', а сам тег должен быть в массиве "missingFields".**
-        
-        // --- НАЧАЛО ДОПОЛНЕНИЯ ---
-        **ПРАВИЛО ГИБКОСТИ И ВНИМАТЕЛЬНОСТИ:**
-        Пользователь может предоставить всю информацию в одном большом сообщении. Твоя задача — **внимательно прочитать ВЕСЬ текст** и не "теряться". Даже если текст длинный, ты ОБЯЗАН найти все данные, если они там есть. Не сдавайся на полпути.
-        // --- КОНЕЦ ДОПОЛНЕНИЯ ---
-
-        КАТЕГОРИЧЕСКИ ЗАПРЕЩАЕТСЯ возвращать "isComplete": false, если все данные присутствуют в тексте. Ты должен найти их.
-        
-        ВАЖНОЕ ПРАВИЛО ДЛЯ ТАБЛИЦ/СПИСКОВ: Если тег обозначает массив (например, 'docs' или 'commission_members'), ты ОБЯЗАН вернуть массив ОБЪЕКТОВ, где ключи объектов - это теги из цикла в шаблоне. Смотри пример.
-        
-        ПРИМЕР ВЫПОЛНЕНИЯ ЗАДАЧИ:
-        ---
-        Пример 'Текста для анализа': "Адрес объекта: г. Астана, ул. Достык, 5. Прилагаются: 1. Техпаспорт (12 листов), 2. Проект (45 листов)."
-        Пример 'Списка требуемых тегов': ["property_address", "docs", "doc_name", "doc_sheets"]
-        Твой ПРАВИЛЬНЫЙ РЕЗУЛЬТАТ:
-        {
-        "isComplete": true,
-        "missingFields": [],
-        "data": {
-            "property_address": "г. Астана, ул. Достык, 5",
-            "docs": [
-            { "doc_name": "Техпаспорт", "doc_sheets": "12" },
-            { "doc_name": "Проект", "doc_sheets": "45" }
-            ]
-        }
-        }
-        ---
-        **--- ВТОРОЙ ПРИМЕР ДЛЯ СЛОЖНЫХ СЛУЧАЕВ ---**
-        Пример 'Текста для анализа': "Хочу оформить акт приема-передачи технической документации"
-        Пример 'Списка требуемых тегов': ["property_address", "transferor_details", "acceptor_details"]
-        Твой ПРАВИЛЬНЫЙ РЕЗУЛЬТАТ:
-        {
-        "isComplete": false,
-        "missingFields": ["property_address", "transferor_details", "acceptor_details"],
-        "data": {}
-        }
-        ---
-        
-        Теперь выполни задачу для реальных данных.
-        
-        Список требуемых тегов для извлечения:
-        ${JSON.stringify(requiredTags, null, 2)}
-        
-        Текст для анализа:
-        "${userAnswersPrompt}"
-        
-        Верни ответ СТРОГО в формате JSON. Без пояснений и \`\`\`json.
-        `;
-
-        try {
-            const rawResponse = await this.generateWithRetry(prompt);
-            const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) {
-              console.error("AI не вернул валидный JSON. Ответ:", rawResponse);
-              throw new Error("Не удалось извлечь данные.");
+    async extractDataForDocx(userAnswersPrompt: string, templateName: string): Promise<{ data: any; isComplete: boolean; missingFields?: { tag: string; question: string; }[]; intent?: string }> {
+        // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+            const normalizedTemplateName = templateName.toLowerCase();
+            const templateInfo = TEMPLATES_REGISTRY[normalizedTemplateName];
+            if (!templateInfo || !templateInfo.tags_in_template) {
+                throw new Error(`Шаблон "${templateName}" не найден или не настроен.`);
             }
+            const requiredTags = templateInfo.tags_in_template;
+            // --- ФИНАЛЬНАЯ ВЕРСИЯ ПРОМПТА С УТОЧНЕНИЕМ ДЛЯ МАССИВОВ ---
+            const prompt = `
+            Твоя роль - сверхточный робот-аналитик JSON. Твоя работа критически важна.
     
-            let parsedResponse: any;
+            **ПЛАН ДЕЙСТВИЙ:**
+            1.  **АНАЛИЗ НАМЕРЕНИЯ:** Сначала определи, что хочет пользователь.
+                -   **ЕСЛИ** текст — это команда отмены ("забей", "отмена", "керек жок", "не хочу"), **ТОГДА** верни JSON: \`{"isComplete": false, "intent": "cancel"}\`.
+                -   **ЕСЛИ** текст — это вопрос, не связанный с данными (например, "а что такое акт?"), **ТОГДА** верни JSON: \`{"isComplete": false, "intent": "query"}\`.
+                -   **ИНАЧЕ** (если это данные), переходи к шагу 2.
+    
+            2.  **ИЗВЛЕЧЕНИЕ ДАННЫХ:**
+                -   Проанализируй 'Текст для анализа'.
+                -   Для КАЖДОГО тега из 'Списка тегов' найди значение.
+                -   Сформируй JSON. "isComplete" должно быть 'true' ТОЛЬКО если найдены ВСЕ теги.
+    
+            **--- НОВОЕ КЛЮЧЕВОЕ ПРАВИЛО ---**
+            **"isComplete" должно быть 'true' ТОЛЬКО И ИСКЛЮЧИТЕЛЬНО ТОГДА, когда ты нашел значения для ВСЕХ тегов из списка. Если ты не нашел значение хотя бы для ОДНОГО тега, "isComplete" ДОЛЖНО быть 'false', а сам тег должен быть в массиве "missingFields".**
+            
+            // --- НАЧАЛО ДОПОЛНЕНИЯ ---
+            **ПРАВИЛО ГИБКОСТИ И ВНИМАТЕЛЬНОСТИ:**
+            Пользователь может предоставить всю информацию в одном большом сообщении. Твоя задача — **внимательно прочитать ВЕСЬ текст** и не "теряться". Даже если текст длинный, ты ОБЯЗАН найти все данные, если они там есть. Не сдавайся на полпути.
+            // --- КОНЕЦ ДОПОЛНЕНИЯ ---
+    
+            КАТЕГОРИЧЕСКИ ЗАПРЕЩАЕТСЯ возвращать "isComplete": false, если все данные присутствуют в тексте. Ты должен найти их.
+            
+            ВАЖНОЕ ПРАВИЛО ДЛЯ ТАБЛИЦ/СПИСКОВ: Если тег обозначает массив (например, 'docs' или 'commission_members'), ты ОБЯЗАН вернуть массив ОБЪЕКТОВ, где ключи объектов - это теги из цикла в шаблоне. Смотри пример.
+            
+            ПРИМЕР ВЫПОЛНЕНИЯ ЗАДАЧИ:
+            ---
+            Пример 'Текста для анализа': "Адрес объекта: г. Астана, ул. Достык, 5. Прилагаются: 1. Техпаспорт (12 листов), 2. Проект (45 листов)."
+            Пример 'Списка требуемых тегов': ["property_address", "docs", "doc_name", "doc_sheets"]
+            Твой ПРАВИЛЬНЫЙ РЕЗУЛЬТАТ:
+            {
+            "isComplete": true,
+            "missingFields": [],
+            "data": {
+                "property_address": "г. Астана, ул. Достык, 5",
+                "docs": [
+                { "doc_name": "Техпаспорт", "doc_sheets": "12" },
+                { "doc_name": "Проект", "doc_sheets": "45" }
+                ]
+            }
+            }
+            ---
+            **--- ВТОРОЙ ПРИМЕР ДЛЯ СЛОЖНЫХ СЛУЧАЕВ ---**
+            Пример 'Текста для анализа': "Хочу оформить акт приема-передачи технической документации"
+            Пример 'Списка требуемых тегов': ["property_address", "transferor_details", "acceptor_details"]
+            Твой ПРАВИЛЬНЫЙ РЕЗУЛЬТАТ:
+            {
+            "isComplete": false,
+            "missingFields": ["property_address", "transferor_details", "acceptor_details"],
+            "data": {}
+            }
+            ---
+            
+            Теперь выполни задачу для реальных данных.
+            
+            Список требуемых тегов для извлечения:
+            ${JSON.stringify(requiredTags, null, 2)}
+            
+            Текст для анализа:
+            "${userAnswersPrompt}"
+            
+            Верни ответ СТРОГО в формате JSON. Без пояснений и \`\`\`json.
+            `;
+    
             try {
-                parsedResponse = JSON.parse(jsonMatch[0]);
-            } catch (parseError) {
-                console.error("Ошибка парсинга JSON от AI:", parseError, "Ответ модели:", jsonMatch[0]);
-                throw new Error("Не удалось обработать ответ AI.");
-            }
-            
-            // Если AI говорит, что данные неполные, но не говорит, какие именно,
-            // мы запрашиваем у него полный список вопросов заново.
-            if (parsedResponse.isComplete === false && (!parsedResponse.missingFields || parsedResponse.missingFields.length === 0)) {
-                console.warn("AI указал на неполные данные, но не предоставил список. Запрашиваем все поля заново.");
+                const rawResponse = await this.generateWithRetry(prompt);
+                const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+                if (!jsonMatch) {
+                  console.error("AI не вернул валидный JSON. Ответ:", rawResponse);
+                  throw new Error("Не удалось извлечь данные.");
+                }
+        
+                let parsedResponse: any;
+                try {
+                    parsedResponse = JSON.parse(jsonMatch[0]);
+                } catch (parseError) {
+                    console.error("Ошибка парсинга JSON от AI:", parseError, "Ответ модели:", jsonMatch[0]);
+                    throw new Error("Не удалось обработать ответ AI.");
+                }
+                
+                // Если AI говорит, что данные неполные, но не говорит, какие именно,
+                // мы запрашиваем у него полный список вопросов заново.
+                if (parsedResponse.isComplete === false && (!parsedResponse.missingFields || parsedResponse.missingFields.length === 0)) {
+                    // Добавим проверку на intent, чтобы не запрашивать поля при отмене
+                    if (parsedResponse.intent !== 'cancel' && parsedResponse.intent !== 'query') {
+                        console.warn("AI указал на неполные данные, но не предоставил список. Запрашиваем все поля заново.");
+                        const allFields = await this.getFieldsForTemplate(templateName);
+                        parsedResponse.missingFields = allFields;
+                    }
+                }
+                
+                return parsedResponse;
+        
+            } catch (error) {
+                console.error('Критическая ошибка при извлечении данных:', error);
+                // В случае любой ошибки, мы не падаем, а вежливо просим пользователя
+                // предоставить данные заново, показывая ему все вопросы.
                 const allFields = await this.getFieldsForTemplate(templateName);
-                parsedResponse.missingFields = allFields;
+                return { isComplete: false, missingFields: allFields, data: {} };
             }
-            
-            return parsedResponse;
-    
-        } catch (error) {
-            console.error('Критическая ошибка при извлечении данных:', error);
-            // В случае любой ошибки, мы не падаем, а вежливо просим пользователя
-            // предоставить данные заново, показывая ему все вопросы.
-            const allFields = await this.getFieldsForTemplate(templateName);
-            return { isComplete: false, missingFields: allFields, data: {} };
-        }
-      }
+          }
 
 
 }
