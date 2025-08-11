@@ -1,5 +1,3 @@
-
-
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI, Content, TaskType } from '@google/generative-ai';

@@ -16,7 +16,18 @@ import { UsersService } from '../users/users.service'; // <-- ИСПРАВЛЕН
 import { DocxService } from '../documents/docx/docx.service'; // <-- ИСПРАВЛЕНИЕ
 import * as crypto from 'crypto';
 import { ChatAiService } from './chat-ai.service';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { GeneratedDocument } from 'src/documents/entities/generated-document.entity';
+import { v4 as uuidv4 } from 'uuid';
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+
+type DocumentProcessingResponse = {
+    type: 'chat' | 'file';
+    content: any;
+    fileName?: string;
+    historyContent?: string; // <--- Вот недостающее поле
+};
 
 @Injectable()
 export class DocumentAiService implements OnModuleInit {
@@ -32,6 +43,8 @@ export class DocumentAiService implements OnModuleInit {
         private readonly usersService: UsersService,
         private readonly docxService: DocxService,
         private readonly chatAiService: ChatAiService,
+        @InjectRepository(GeneratedDocument)
+        private readonly generatedDocRepo: Repository<GeneratedDocument>,
 
     ) { }
 
@@ -144,7 +157,7 @@ export class DocumentAiService implements OnModuleInit {
     }
 
     // Замените старый метод processDocumentMessage на этот
-    async processDocumentMessage(prompt: string, user: User): Promise<{ type: 'chat' | 'file'; content: any; fileName?: string }> {
+    async processDocumentMessage(prompt: string, user: User): Promise<DocumentProcessingResponse> {
         const userId = user.id;
         const language = this.detectLanguage(prompt);
 
@@ -161,10 +174,73 @@ export class DocumentAiService implements OnModuleInit {
 
             // Если это были данные для заполнения
             if (extractionResult.isComplete) {
+                // --- НАЧАЛО БЛОКА ПРОВЕРКИ ЛИМИТОВ ---
+                if (user.tariff === 'Базовый') {
+                    const now = new Date();
+                    if (user.last_generation_date) {
+                        const lastGen = new Date(user.last_generation_date);
+                        // Проверяем, была ли генерация в том же календарном месяце и году
+                        if (lastGen.getFullYear() === now.getFullYear() && lastGen.getMonth() === now.getMonth()) {
+                            const message = language === 'kz'
+                                ? "Сіз осы айдағы тегін құжат жасау лимитіңізді пайдаланып қойдыңыз. Лимитсіз генерация үшін 'Премиум' тарифіне өтіңіз."
+                                : "Вы уже использовали свой лимит на создание бесплатного документа в этом месяце. Для безлимитной генерации, пожалуйста, перейдите на тариф 'Премиум'.";
+                            
+                            // Важно: также сбрасываем состояние, чтобы пользователь не застрял
+                            await this.usersService.resetDocChatState(userId);
+                            return { type: 'chat', content: { action: 'clarification', message } };
+                        }
+                    }
+                }
+                // --- КОНЕЦ БЛОКА ПРОВЕРКИ ЛИМИТОВ ---
+            
                 const docxBuffer = this.docxService.generateDocx(user.doc_chat_template, extractionResult.data);
+                
+                // --- НАЧАЛО ЛОГИКИ СОХРАНЕНИЯ ФАЙЛА НА ДИСК И В БД ---
+                const fileId = uuidv4();
+                const storageDir = path.join(process.cwd(), 'generated_documents');
+                // Убедимся, что директория существует
+                if (!fs.existsSync(storageDir)) {
+                    fs.mkdirSync(storageDir, { recursive: true });
+                }
+                const storagePath = path.join(storageDir, `${fileId}.docx`);
+                fs.writeFileSync(storagePath, docxBuffer);
+            
+                // Сохраняем метаданные в БД
+                const newDoc = this.generatedDocRepo.create({
+                    id: fileId,
+                    user: user,
+                    originalFileName: `${user.doc_chat_template}.docx`,
+                    storagePath: `generated_documents/${fileId}.docx`
+                });
+                await this.generatedDocRepo.save(newDoc);
+                // --- КОНЕЦ ЛОГИКИ СОХРАНЕНИЯ ФАЙЛА ---
+            
                 await this.usersService.resetDocChatState(userId);
-                if (user.tariff === 'Базовый') { await this.usersService.setLastGenerationDate(user.id, new Date()); }
-                return { type: 'file', content: docxBuffer, fileName: user.doc_chat_template };
+            
+                // Обновляем дату генерации ТОЛЬКО для базового тарифа после успешного создания
+                if (user.tariff === 'Базовый') {
+                    await this.usersService.setLastGenerationDate(user.id, new Date());
+                }
+            
+                // --- ИЗМЕНЕНИЕ ОТВЕТА ДЛЯ ИСТОРИИ ЧАТА ---
+                // Формируем специальный JSON для сохранения в историю чата
+                const modelResponseContent = JSON.stringify({
+                    message: `Документ "${user.doc_chat_template}" успешно сгенерирован.`,
+                    fileId: fileId,
+                    fileName: `${user.doc_chat_template}.docx`
+                });
+                
+                // Этот контент будет сохранен в историю чата в контроллере
+                // ВАЖНО: Мы должны передать его обратно в контроллер.
+                // Для этого добавим его в возвращаемый объект, чтобы контроллер мог его прочитать.
+                
+                return { 
+                    type: 'file', 
+                    content: docxBuffer, 
+                    fileName: user.doc_chat_template,
+                    // Добавляем специальное поле для истории чата
+                    historyContent: modelResponseContent 
+                };
             }
 
             // Если данные неполные
@@ -469,5 +545,13 @@ export class DocumentAiService implements OnModuleInit {
             console.error('Критическая ошибка при извлечении данных:', error);
             return { isComplete: false, missingFields: requiredTags, data: {} };
         }
+    }
+    async getGeneratedDocument(fileId: string, userId: number): Promise<GeneratedDocument | null> {
+        return this.generatedDocRepo.findOne({
+            where: {
+                id: fileId,
+                user: { id: userId } // Проверяем, что документ принадлежит именно этому пользователю
+            }
+        });
     }
 }

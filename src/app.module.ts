@@ -19,7 +19,7 @@ import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { FinanceModule } from './finance/finance.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TasksModule } from './tasks/tasks.module';
-
+import { GeneratedDocument } from './documents/entities/generated-document.entity';
 
 @Module({
   imports: [
@@ -58,6 +58,7 @@ import { TasksModule } from './tasks/tasks.module';
     SubscriptionsModule,
     FinanceModule,
     TasksModule,
+    GeneratedDocument
   ],
   controllers: [AppController], // Корневой контроллер
   providers: [AppService], // Корневой сервис
