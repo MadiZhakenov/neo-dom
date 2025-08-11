@@ -39,6 +39,9 @@ export class User {
   @Column({ type: 'boolean', default: false })
   password_change_required: boolean;
 
+  @Column({ type: 'int', default: 0 })
+  generation_count: number;
+
   // Добавляем связь с сообщениями чата
   @OneToMany(() => ChatMessage, (message) => message.user)
   chatMessages: ChatMessage[];
