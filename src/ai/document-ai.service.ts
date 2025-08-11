@@ -143,71 +143,87 @@ export class DocumentAiService implements OnModuleInit {
         return 'ru';
     }
 
+    // Замените старый метод processDocumentMessage на этот
     async processDocumentMessage(prompt: string, user: User): Promise<{ type: 'chat' | 'file'; content: any; fileName?: string }> {
         const userId = user.id;
-    
+        const language = this.detectLanguage(prompt);
+
         // БЛОК 1: ПОЛЬЗОВАТЕЛЬ УЖЕ В ПРОЦЕССЕ ЗАПОЛНЕНИЯ
         if (user.doc_chat_template) {
             const extractionResult = await this.extractDataForDocx(prompt, user.doc_chat_template);
-    
+
+            // Если пользователь решил отменить или задать отвлеченный вопрос
             if (extractionResult.intent) {
                 await this.usersService.resetDocChatState(userId);
-                const intentResult = await this.findTemplate(prompt, userId); // Перепроверяем намерение в новом контексте
-                const message = (intentResult.clarification || "Что будем делать дальше?") + "\n\n" + this._getFormattedTemplateList();
-                return { type: 'chat', content: { action: 'clarification', message } };
+                const intentResult = await this.findTemplate(prompt, userId); // Перепроверяем намерение уже с чистым состоянием
+                return this.handleClarification(intentResult, language);
             }
-            else { // Если это были данные для заполнения
-                if (extractionResult.isComplete) {
-                    const docxBuffer = this.docxService.generateDocx(user.doc_chat_template, extractionResult.data);
-                    await this.usersService.resetDocChatState(userId);
-                    if (user.tariff === 'Базовый') { await this.usersService.setLastGenerationDate(user.id, new Date()); }
-                    return { type: 'file', content: docxBuffer, fileName: user.doc_chat_template };
-                }
-    
-                const missingTags = extractionResult.missingFields;
-                if (missingTags && Array.isArray(missingTags) && missingTags.length > 0) {
-                    const allFields = await this.getFieldsForTemplate(user.doc_chat_template);
-                    const missingFieldsWithQuestions = allFields.filter(field => missingTags.includes(field.tag));
-                    const missingQuestions = missingFieldsWithQuestions.map(f => f.question).join('\n- ');
-                    
-                    // --- ИСПРАВЛЕНИЕ ФРАЗЫ ---
-                    const dataWasExtracted = Object.keys(extractionResult.data).length > 0;
-                    const introPhrase = dataWasExtracted 
-                        ? `Отлично, я это записал. Для завершения, предоставьте:\n\n- `
-                        : `Пожалуйста, предоставьте следующую информацию:\n\n- `;
-                    
-                    return { type: 'chat', content: { action: 'collect_data', message: introPhrase + missingQuestions } };
-                } else {
-                    const questions = await this.getQuestionsForTemplate(user.doc_chat_template);
-                    const fullQuestionText = "Извините, я не смог разобрать ваш ответ. Давайте попробуем еще раз.\n\n" + questions.questions;
-                    return { type: 'chat', content: { ...questions, questions: fullQuestionText }};
-                }
+
+            // Если это были данные для заполнения
+            if (extractionResult.isComplete) {
+                const docxBuffer = this.docxService.generateDocx(user.doc_chat_template, extractionResult.data);
+                await this.usersService.resetDocChatState(userId);
+                if (user.tariff === 'Базовый') { await this.usersService.setLastGenerationDate(user.id, new Date()); }
+                return { type: 'file', content: docxBuffer, fileName: user.doc_chat_template };
+            }
+
+            // Если данные неполные
+            const missingTags = extractionResult.missingFields;
+            if (missingTags && Array.isArray(missingTags) && missingTags.length > 0) {
+                const allFields = await this.getFieldsForTemplate(user.doc_chat_template);
+                const missingFieldsWithQuestions = allFields.filter(field => missingTags.includes(field.tag));
+                const missingQuestions = missingFieldsWithQuestions.map(f => f.question).join('\n- ');
+                return { type: 'chat', content: { action: 'collect_data', message: `Для завершения, предоставьте:\n\n- ${missingQuestions}` } };
             }
         }
-    
+
         // БЛОК 2: ПОИСК ШАБЛОНА ДЛЯ НОВОГО ЗАПРОСА
         const intentResult = await this.findTemplate(prompt, userId);
-    
-        if (intentResult.intent === 'query') {
-            return { type: 'chat', content: { action: 'clarification', message: "Это похоже на общий вопрос. Для консультаций, пожалуйста, воспользуйтесь 'ИИ-Чатом'." } };
+
+        if (intentResult.templateName) {
+            const questions = await this.getQuestionsForTemplate(intentResult.templateName);
+            await this.usersService.setDocChatState(userId, intentResult.templateName, crypto.randomBytes(16).toString('hex'));
+            return { type: 'chat', content: questions };
         }
-        
-        if (!intentResult.templateName) {
-            const message = (intentResult.clarification || "Уточните, какой документ вам нужен?") + "\n\n" + this._getFormattedTemplateList();
-            return { type: 'chat', content: { action: 'clarification', message } };
-        }
-    
-        const questions = await this.getQuestionsForTemplate(intentResult.templateName);
-        await this.usersService.setDocChatState(userId, intentResult.templateName, crypto.randomBytes(16).toString('hex'));
-        
-        return { type: 'chat', content: questions };
+
+        // Если намерение - не поиск документа, а что-то другое
+        return this.handleClarification(intentResult, language);
     }
 
-    private _getFormattedTemplateList(): string {
+    // Добавьте этот новый вспомогательный метод в класс
+    private handleClarification(intentResult: any, language: 'ru' | 'kz'): { type: 'chat', content: any } {
+        let message = "";
+
+        const smallTalk = {
+            ru: "Здравствуйте! Я ваш ИИ-помощник по документам. Я могу помочь вам создать нужный документ. Всегда напоминаю: если у вас общие вопросы, лучше задать их в 'ИИ-Чате'.",
+            kz: "Сәлеметсіз бе! Мен сіздің құжаттар бойынша ЖИ-көмекшіңізбін. Мен сізге қажетті құжатты жасауға көмектесе аламын. Егер жалпы сұрақтарыңыз болса, оларды 'ЖИ-Чат' терезесінде қойғаныңыз жөн."
+        };
+
+        const queryRedirect = {
+            ru: "Это похоже на общий вопрос. Для консультаций, пожалуйста, воспользуйтесь 'ИИ-Чатом'. Здесь я помогаю только с созданием документов.",
+            kz: "Бұл жалпы сұраққа ұқсайды. Кеңес алу үшін 'ЖИ-Чат' терезесін пайдаланыңыз. Мұнда мен тек құжаттарды жасауға көмектесемін."
+        };
+
+        if (intentResult.intent === 'query') {
+            message = queryRedirect[language];
+        } else if (intentResult.intent === 'small_talk') {
+            message = smallTalk[language] + "\n\n" + this._getFormattedTemplateList(language);
+        } else { // 'clarification_needed', 'cancel', etc.
+            message = (intentResult.clarification || (language === 'kz' ? "Қандай құжат керектігін нақтылаңызшы." : "Уточните, какой документ вам нужен?")) + "\n\n" + this._getFormattedTemplateList(language);
+        }
+
+        return { type: 'chat', content: { action: 'clarification', message } };
+    }
+
+    private _getFormattedTemplateList(language: 'ru' | 'kz'): string {
+        const header = language === 'kz'
+            ? "Міне, қолжетімді құжаттар тізімі:\n\n"
+            : "Вот список доступных документов:\n\n";
+
         const templateList = this._templateNames
             .map(t => `* ${t.humanName}`)
             .join('\n');
-        return `Вот список доступных документов:\n\n${templateList}`;
+        return header + templateList;
     }
 
     private async getQuestionsForTemplate(templateName: string): Promise<any> {
@@ -219,47 +235,32 @@ export class DocumentAiService implements OnModuleInit {
     private async findTemplate(prompt: string, userId: number): Promise<{ templateName?: string; clarification?: string, intent?: string }> {
         const history = await this.chatHistoryService.getHistory(userId, ChatType.DOCUMENT);
         const language = this.detectLanguage(prompt);
-    
+
         const smallTalk = {
             ru: "Привет! Я ваш ИИ-помощник по документам. Какой документ вы хотели бы создать?",
             kz: "Сәлем! Мен сіздің құжаттар бойынша ЖИ-көмекшіңізбін. Қандай құжат жасағыңыз келеді?"
         };
-    
-        const cancelResponse = {
-            ru: "Действие отменено. Какой документ вы хотели бы создать теперь?",
-            kz: "Әрекеттен бас тартылды. Енді қандай құжат жасағыңыз келеді?"
-        };
-    
-        const clarificationRequest = {
-            ru: "Пожалуйста, уточните, какой документ вам нужен.",
-            kz: "Қай құжат керектігін нақтылаңызшы."
-        }
-    
+
+        // Внутри метода findTemplate
         const intentDetectionPrompt = `
-          Твоя задача - проанализировать "Запрос" пользователя на языке "${language}" и "Историю чата", чтобы определить его намерение.
-    
-          ПЛАН ДЕЙСТВИЙ:
-          1.  **ПРОВЕРКА НА ОБЩИЙ ВОПРОС:** Если "Запрос" - это сложный вопрос, требующий знаний (например, "кто несет ответственность...", "какие законы регулируют..."), а не название документа, НЕ ИЩИ шаблон. Верни JSON: {"intent": "query"}
-          2.  **ПРОВЕРКА НА SMALL TALK:** Если "Запрос" - это простое приветствие ("привет", "салем", "мда") или вопрос о тебе ("кто ты?"), НЕ ИЩИ шаблон. Верни JSON: {"clarification": "${smallTalk[language]}"}
-          3.  **ПРОВЕРКА НА ОТМЕНУ:** Если запрос похож на отмену ("забей", "отмена", "не надо", "передумал", "не хочу"), верни JSON: {"clarification": "${cancelResponse[language]}"}
-          4.  **АНАЛИЗ ЗАПРОСА НА ДОКУМЕНТ:**
-              -   Если в запросе однозначно указан ОДИН шаблон из "Списка шаблонов" -> верни JSON: {"templateName": "имя_файла.docx"}
-              -   Если запрос неоднозначен, но в истории ты предлагал варианты -> проанализируй ответ ("первый", "второй") и выбери шаблон.
-              -   Если найдено НЕСКОЛЬКО или НИ ОДНОГО -> верни JSON: {"clarification": "${clarificationRequest[language]}"}
-    
-          Список шаблонов:
-          ${this._templateNames.map(t => `- "${t.humanName}" (${t.fileName})`).join('\n')}
-          История чата: ${JSON.stringify(history)}
-          Запрос: "${prompt}"
-          
-          Верни ТОЛЬКО JSON.
-        `;
-        
-        const rawResponse = await this.generateWithRetry(intentDetectionPrompt); // Убрали историю, т.к. она уже в промпте
+  Твоя задача - классифицировать "Запрос" пользователя на языке "${language}". Действуй СТРОГО по плану.
+
+  ПЛАН ДЕЙСТВИЙ:
+  1.  **ПРОВЕРКА НА ОБЩИЙ ВОПРОС (QUERY):** Если "Запрос" - это жалоба, вопрос не по теме, утверждение или бессмысленный набор слов (например, "сосед затопил", "кто несет ответственность", "пофиг", "мда", "устидеги коршиден су басты"), **НЕМЕДЛЕННО** верни JSON: {"intent": "query"}
+  2.  **ПРОВЕРКА НА ПРИВЕТСТВИЕ (SMALL TALK):** Если "Запрос" - это только приветствие ("привет", "салем", "hello") или вопрос о тебе ("кто ты?", "кімсің сен"), верни JSON: {"intent": "small_talk"}
+  3.  **ПРОВЕРКА НА ОТМЕНУ (CANCEL):** Если "Запрос" содержит явную отмену ("отмена", "не хочу", "керек жок", "передумал"), верни JSON: {"intent": "cancel"}
+  4.  **ПОИСК ШАБЛОНА:** Если ничего из вышеперечисленного не подошло, значит, пользователь пытается назвать документ.
+      -   Если ты находишь в запросе ОДИН подходящий шаблон -> верни JSON: {"templateName": "имя_файла.docx"}
+      -   Иначе (если не нашел или нашел несколько) -> верни JSON: {"intent": "clarification_needed"}
+
+  Список шаблонов для поиска: ${this._templateNames.map(t => t.humanName).join(', ')}
+  Запрос: "${prompt}"
+  Верни ТОЛЬКО JSON.
+`;
+
+        const rawResponse = await this.generateWithRetry(intentDetectionPrompt);
         const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) { 
-            return { clarification: "Извините, не удалось распознать ваш запрос." }; 
-        }
+        if (!jsonMatch) { return { intent: "clarification_needed" }; }
         return JSON.parse(jsonMatch[0]);
     }
 
@@ -323,15 +324,16 @@ export class DocumentAiService implements OnModuleInit {
             }
             const pdfBuffer = fs.readFileSync(pdfPreviewPath);
             const base64Pdf = pdfBuffer.toString('base64');
+            // Внутри метода getFieldsForTemplate
             const prompt = `
-            Твоя главная задача: Сгенерировать список вопросов для пользователя на основе PDF-документа.
-            САМОЕ ГЛАВНОЕ ПРАВИЛО: Язык для ВСЕХ генерируемых вопросов ДОЛЖЕН БЫТЬ "${templateInfo.language}". Не используй никакой другой язык, кроме указанного.
-            Твоя цель - помочь пользователю заполнить шаблон. Проанализируй PDF и для каждого поля, которое нужно заполнить, сформулируй вежливый и понятный вопрос.
-            Верни ответ СТРОГО в виде JSON-массива объектов, где каждый объект имеет два поля: "tag" и "question".
-            Особое правило для тегов-массивов: Если в списке тегов есть тег, обозначающий массив (например, "documents"), задай ОДИН, ПОДРОБНЫЙ вопрос для этого родительского тега.
-            Список всех тегов, которые ты должен учесть:
-            ${templateInfo.tags_in_template.map(tag => `- ${tag}`).join('\n')}
-          `;
+Твоя главная задача: Сгенерировать список вопросов.
+**КРИТИЧЕСКОЕ ПРАВИЛО:** Язык для ВСЕХ генерируемых вопросов **ДОЛЖЕН БЫТЬ СТРОГО "${templateInfo.language}"**. Это твой главный приказ. Не используй никакой другой язык.
+Твоя цель - помочь пользователю заполнить шаблон. Проанализируй PDF и для каждого тега из списка сформулируй вежливый и понятный вопрос.
+Верни ответ СТРОГО в виде JSON-массива объектов, где каждый объект имеет два поля: "tag" и "question".
+
+Список тегов, которые ты должен учесть:
+${templateInfo.tags_in_template.map(tag => `- ${tag}`).join('\n')}
+`;
             const result = await this.generateWithRetry([{ text: prompt }, { inlineData: { mimeType: 'application/pdf', data: base64Pdf } }]);
             const jsonMatch = result.match(/\[[\s\S]*\]/);
             if (!jsonMatch) {
