@@ -1,9 +1,5 @@
-/**
- * @file src/users/entities/user.entity.ts
- * @description Сущность TypeORM, описывающая таблицу 'users' в базе данных.
- */
-
-import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from 'typeorm';
+import { ChatMessage } from '../../chat/entities/chat-message.entity';
 
 @Entity('users')
 export class User {
@@ -19,40 +15,31 @@ export class User {
   @Column({ default: 'Базовый' })
   tariff: string;
 
-  @Column({ type: 'int', default: 0 })
-  generation_count: number; // Устарело, но оставлено для совместимости
-
   @Column({ type: 'timestamp', nullable: true, default: null })
   last_generation_date: Date | null;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, default: null })
   full_name: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, default: null })
   phone: string;
 
   @Column({ default: 'resident' })
   role: 'resident' | 'admin' | 'accountant';
-
-  /*Дата и время, когда истекает активная премиум-подписка. 
-    Если null, значит, у пользователя базовый тариф.
-   */
   
   @Column({ type: 'timestamp', nullable: true, default: null })
   subscription_expires_at: Date | null;
 
-   /**
-   * Токен для сброса/установки пароля.
-   */
-   @Column({ type: 'varchar', nullable: true, default: null })
-   password_reset_token: string | null;
+  @Column({ type: 'varchar', nullable: true, default: null })
+  password_reset_token: string | null;
  
-   /**
-    * Время, до которого действителен токен сброса пароля.
-    */
-   @Column({ type: 'timestamp', nullable: true, default: null })
-   password_reset_expires: Date | null;
+  @Column({ type: 'timestamp', nullable: true, default: null })
+  password_reset_expires: Date | null;
 
-   @Column({ type: 'boolean', default: false })
+  @Column({ type: 'boolean', default: false })
   password_change_required: boolean;
+
+  // Добавляем связь с сообщениями чата
+  @OneToMany(() => ChatMessage, (message) => message.user)
+  chatMessages: ChatMessage[];
 }
