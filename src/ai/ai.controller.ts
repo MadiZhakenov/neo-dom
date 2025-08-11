@@ -71,25 +71,31 @@ export class AiController {
     const user = await this.usersService.findOneById(userId);
     if (!user) { throw new NotFoundException('Пользователь не найден.'); }
 
-    // --- НАЧАЛО ФИНАЛЬНОЙ, ПРАВИЛЬНОЙ ЛОГИКИ ---
+    // --- НАЧАЛО ФИНАЛЬНОЙ, НАДЕЖНОЙ ЛОГИКИ ---
 
-    // 1. Получаем "сырой" ответ от AI-сервиса.
+    // 1. Сохраняем запрос пользователя СРАЗУ.
+    await this.chatHistoryService.addMessageToHistory(userId, generateDto.prompt, '', ChatType.DOCUMENT);
+
+    // 2. Вызываем единый "умный" метод в сервисе, который сделает всю работу.
     const response = await this.documentAiService.processDocumentMessage(generateDto.prompt, user);
 
+    // 3. Обновляем ответ модели в истории.
+    const modelResponseContent = response.type === 'file' 
+      ? `Документ "${response.fileName}" успешно сгенерирован.` 
+      : JSON.stringify(response.content);
+    await this.chatHistoryService.updateLastModelMessage(userId, modelResponseContent, ChatType.DOCUMENT);
+
+    // 4. Отправляем ответ пользователю.
     if (response.type === 'file') {
-      // --- ИСПРАВЛЕНИЕ: ДОБАВЛЯЕМ ПРОВЕРКУ ---
       if (!response.fileName) {
-        // Этого не должно произойти, но добавляем для безопасности
-        console.error("Ошибка: сервис вернул файл, но без имени файла.");
         return res.status(500).json({ aiResponse: "Внутренняя ошибка: отсутствует имя файла." });
       }
-
-      const successMessage = `Документ "${response.fileName}" успешно сгенерирован.`;
-      await this.chatHistoryService.addMessageToHistory(userId, generateDto.prompt, successMessage, ChatType.DOCUMENT);
-
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
       res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(response.fileName)}.docx`);
       return res.send(response.content);
+    } else {
+      // Отправка JSON (вопросы или уточнения)
+      return res.status(200).json({ aiResponse: response.content });
     }
   }
 }
