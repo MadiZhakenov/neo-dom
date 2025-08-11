@@ -11,7 +11,10 @@ import { RecursiveCharacterTextSplitter } from 'langchain/text_splitter';
 import { ChatHistoryService } from '../chat/history/history.service';
 import { TEMPLATES_REGISTRY } from './templates.registry';
 import { ChatType } from '../chat/entities/chat-message.entity';
-
+import { User } from '../users/entities/user.entity'; // <-- ИСПРАВЛЕНИЕ
+import { UsersService } from '../users/users.service'; // <-- ИСПРАВЛЕНИЕ
+import { DocxService } from '../documents/docx/docx.service'; // <-- ИСПРАВЛЕНИЕ
+import * as crypto from 'crypto'; // <-- ИСПРАВЛ
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
 @Injectable()
@@ -25,6 +28,9 @@ export class DocumentAiService implements OnModuleInit {
     constructor(
         private readonly configService: ConfigService,
         private readonly chatHistoryService: ChatHistoryService,
+        private readonly usersService: UsersService,
+        private readonly docxService: DocxService,
+        
     ) { }
 
     /**
@@ -65,6 +71,8 @@ export class DocumentAiService implements OnModuleInit {
         }
         console.log(`[AI Service] Загружено и провалидировано ${this._templateNames.length} шаблонов.`);
     }
+
+    
     private async initializeVectorStore(apiKey: string) {
         console.log('[AI Service] Инициализация векторной базы знаний...');
         try {
@@ -132,6 +140,70 @@ export class DocumentAiService implements OnModuleInit {
         if (kzCommonWords.test(text)) { return 'kz'; }
         return 'ru';
     }
+
+    async processDocumentMessage(prompt: string, user: User): Promise<{ type: 'chat' | 'file'; content: any; fileName?: string }> {
+        const userId = user.id;
+        await this.chatHistoryService.addMessageToHistory(userId, prompt, '', ChatType.DOCUMENT);
+    
+        if (user.doc_chat_template) {
+          const { data, isComplete, missingFields } = await this.extractDataForDocx(prompt, user.doc_chat_template);
+        
+          if (!isComplete) {
+            const missingQuestions = (missingFields || []).map(f => f.question).join('\n- ');
+            const responseMessage = `Для завершения, предоставьте:\n\n- ${missingQuestions}`;
+            await this.chatHistoryService.updateLastModelMessage(userId, responseMessage, ChatType.DOCUMENT);
+            return { type: 'chat', content: { action: 'collect_data', message: responseMessage } };
+          }
+    
+          const docxBuffer = this.docxService.generateDocx(user.doc_chat_template, data);
+          await this.usersService.resetDocChatState(userId);
+          
+          if (user.tariff === 'Базовый') {
+            await this.usersService.setLastGenerationDate(user.id, new Date());
+          }
+    
+          const successMessage = `Документ "${user.doc_chat_template}" успешно сгенерирован.`;
+          await this.chatHistoryService.updateLastModelMessage(userId, successMessage, ChatType.DOCUMENT);
+          return { type: 'file', content: docxBuffer, fileName: user.doc_chat_template };
+        }
+    
+        const intentResult = await this.findTemplate(prompt, userId);
+    
+        if (intentResult.templateName) {
+          const questions = await this.getQuestionsForTemplate(intentResult.templateName);
+          await this.usersService.setDocChatState(userId, intentResult.templateName, crypto.randomBytes(16).toString('hex'));
+          await this.chatHistoryService.updateLastModelMessage(userId, JSON.stringify(questions), ChatType.DOCUMENT);
+          return { type: 'chat', content: questions };
+        } else {
+            const clarification = intentResult.clarification || "Уточните, какой документ вам нужен?";
+            await this.chatHistoryService.updateLastModelMessage(userId, clarification, ChatType.DOCUMENT);
+            return { type: 'chat', content: { action: 'clarification', message: clarification } };
+        }
+      }
+    
+      private async findTemplate(prompt: string, userId: number): Promise<{ templateName?: string; clarification?: string }> {
+        const history = await this.chatHistoryService.getHistory(userId, ChatType.DOCUMENT);
+        const intentDetectionPrompt = `
+          Твоя задача - найти в "Списке шаблонов" тот, который лучше всего соответствует "Запросу".
+          - ЕСЛИ найден ОДИН -> верни ТОЛЬКО JSON: {"templateName": "имя_файла.docx"}
+          - ЕСЛИ найдено НЕСКОЛЬКО или НИ ОДНОГО -> верни ТОЛЬКО JSON: {"templateName": null, "clarification": "текст_уточняющего_вопроса_с_вариантами"}
+          Список шаблонов:
+          ${this._templateNames.map(t => `- "${t.humanName}" (${t.fileName})`).join('\n')}
+          Запрос: "${prompt}"
+        `;
+        
+        const rawResponse = await this.generateWithRetry(intentDetectionPrompt, history);
+        const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) { return { clarification: "Извините, не удалось распознать ваш запрос." }; }
+        return JSON.parse(jsonMatch[0]);
+      }
+    
+      private async getQuestionsForTemplate(templateName: string): Promise<any> {
+        const fields = await this.getFieldsForTemplate(templateName);
+        const questions = await this.formatQuestionsForUser(fields, templateName);
+        return { action: 'collect_data', templateName, questions };
+      }
+
 
     /**
       * Шаг 1: Находит подходящий шаблон и возвращает список вопросов.
@@ -322,33 +394,38 @@ export class DocumentAiService implements OnModuleInit {
 
         try {
             const rawResponse = await this.generateWithRetry(prompt);
-
-            // --- ГЛАВНОЕ ИСПРАВЛЕНИЕ ---
-            // Используем регулярное выражение для поиска JSON-блока в ответе.
             const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-
-            // Если JSON-блок не найден вообще, это критическая ошибка.
             if (!jsonMatch) {
-                console.error("AI не вернул валидный JSON в ответе. Ответ модели:", rawResponse);
-                throw new Error("Не удалось извлечь данные из ответа AI.");
+              console.error("AI не вернул валидный JSON. Ответ:", rawResponse);
+              throw new Error("Не удалось извлечь данные.");
             }
-
-            // Берем только совпавшую часть (чистый JSON) и парсим ее.
-            const parsedResponse = JSON.parse(jsonMatch[0]);
-
-            if (parsedResponse.isComplete === false && !parsedResponse.missingFields) {
-                console.warn("AI указал на неполные данные, но не предоставил список недостающих полей. Повторно запрашиваем все поля.");
-                const fields = await this.getFieldsForTemplate(templateName);
-                parsedResponse.missingFields = fields;
+    
+            let parsedResponse: any;
+            try {
+                parsedResponse = JSON.parse(jsonMatch[0]);
+            } catch (parseError) {
+                console.error("Ошибка парсинга JSON от AI:", parseError, "Ответ модели:", jsonMatch[0]);
+                throw new Error("Не удалось обработать ответ AI.");
             }
+            
+            // Если AI говорит, что данные неполные, но не говорит, какие именно,
+            // мы запрашиваем у него полный список вопросов заново.
+            if (parsedResponse.isComplete === false && (!parsedResponse.missingFields || parsedResponse.missingFields.length === 0)) {
+                console.warn("AI указал на неполные данные, но не предоставил список. Запрашиваем все поля заново.");
+                const allFields = await this.getFieldsForTemplate(templateName);
+                parsedResponse.missingFields = allFields;
+            }
+            
             return parsedResponse;
-
+    
         } catch (error) {
             console.error('Критическая ошибка при извлечении данных:', error);
-            const fields = await this.getFieldsForTemplate(templateName);
-            return { isComplete: false, missingFields: fields, data: {} };
+            // В случае любой ошибки, мы не падаем, а вежливо просим пользователя
+            // предоставить данные заново, показывая ему все вопросы.
+            const allFields = await this.getFieldsForTemplate(templateName);
+            return { isComplete: false, missingFields: allFields, data: {} };
         }
-    }
+      }
 
 
 }

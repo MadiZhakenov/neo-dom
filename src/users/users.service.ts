@@ -252,4 +252,24 @@ export class UsersService {
       },
     };
   }
+
+  /**
+   * Устанавливает состояние чата документов для пользователя.
+   */
+  async setDocChatState(userId: number, templateName: string, requestId: string): Promise<void> {
+    await this.usersRepository.update(userId, {
+      doc_chat_template: templateName,
+      doc_chat_request_id: requestId,
+    });
+  }
+
+  /**
+   * Сбрасывает состояние чата документов для пользователя.
+   */
+  async resetDocChatState(userId: number): Promise<void> {
+    await this.usersRepository.update(userId, {
+      doc_chat_template: null,
+      doc_chat_request_id: null,
+    });
+  }
 }

@@ -42,6 +42,13 @@ export class User {
   @Column({ type: 'int', default: 0 })
   generation_count: number;
 
+   // --- ВОЗВРАЩАЕМ ЭТИ ПОЛЯ, НО ТОЛЬКО ДЛЯ ДОКУМЕНТОВ ---
+   @Column({ type: 'varchar', nullable: true, default: null })
+   doc_chat_template: string | null; // Новое имя
+ 
+   @Column({ type: 'varchar', nullable: true, default: null })
+   doc_chat_request_id: string | null; // Новое имя
+
   // Добавляем связь с сообщениями чата
   @OneToMany(() => ChatMessage, (message) => message.user)
   chatMessages: ChatMessage[];

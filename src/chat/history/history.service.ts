@@ -93,4 +93,44 @@ export class ChatHistoryService {
         createdAt: msg.createdAt,
     }));
   }
+
+    /**
+   * Находит последнее сообщение пользователя и обновляет следующее за ним (пустое) сообщение модели.
+   * @param userId - ID пользователя.
+   *-  @param modelContent - Текст ответа модели для сохранения.
+   * @param type - Тип чата.
+   */
+   async updateLastModelMessage(userId: number, modelContent: string, type: ChatType): Promise<void> {
+    // 1. Находим самое последнее сообщение в чате для этого пользователя и типа
+    const lastMessage = await this.chatMessageRepository.findOne({
+      where: {
+        user: { id: userId },
+        type: type,
+      },
+      order: { createdAt: 'DESC' },
+    });
+
+    // 2. Проверяем, что это сообщение от пользователя и у него пустой ответ
+    if (lastMessage && lastMessage.role === ChatMessageRole.USER) {
+      // Это условие означает, что мы только что сохранили сообщение пользователя,
+      // а сообщение модели для него еще не создано.
+      // (В нашей новой логике мы сохраняем user message с пустым model message,
+      // но для надежности лучше создать новое сообщение модели).
+      
+      const modelMessage = this.chatMessageRepository.create({
+        user: lastMessage.user,
+        role: ChatMessageRole.MODEL,
+        content: modelContent,
+        type: type,
+      });
+      await this.chatMessageRepository.save(modelMessage);
+
+    } else if (lastMessage && lastMessage.role === ChatMessageRole.MODEL) {
+        // Если последнее сообщение уже от модели, просто обновим его
+        lastMessage.content = modelContent;
+        await this.chatMessageRepository.save(lastMessage);
+    } else {
+        console.error(`[HistoryService] Не найдено предыдущее сообщение для обновления ответа модели для userId: ${userId}`);
+    }
+  }
 }
