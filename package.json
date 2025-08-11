@@ -20,7 +20,7 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "typeorm:local": "ts-node -r dotenv/config -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/data-source.ts",
-    "migration:generate": "npm run typeorm:local -- migration:generate src/migrations/FinalSchema",
+    "migration:generate": "npm run typeorm:local -- migration:generate src/migrations/AddGeneratedDocumentsTable",
     "migration:run:local": "npm run typeorm:local -- migration:run",
     "migration:revert": "npm run typeorm -- migration:revert",
     "db:migrate:prod": "typeorm-ts-node-commonjs -d dist/data-source.js migration:run",
