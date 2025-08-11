@@ -171,7 +171,10 @@ export class DocumentAiService implements OnModuleInit {
             const missingTags = extractionResult.missingFields;
             if (missingTags && Array.isArray(missingTags) && missingTags.length > 0) {
                 const allFields = await this.getFieldsForTemplate(user.doc_chat_template);
+
+                // Эта строка теперь корректна, так как TypeScript знает, что missingTags - это string[]
                 const missingFieldsWithQuestions = allFields.filter(field => missingTags.includes(field.tag));
+
                 const missingQuestions = missingFieldsWithQuestions.map(f => f.question).join('\n- ');
                 return { type: 'chat', content: { action: 'collect_data', message: `Для завершения, предоставьте:\n\n- ${missingQuestions}` } };
             }
@@ -311,41 +314,57 @@ export class DocumentAiService implements OnModuleInit {
      * @param templateName - Имя файла шаблона.
      * @returns Массив объектов с полями 'tag' (для машины) и 'question' (для человека).
      */
-    async getFieldsForTemplate(templateName: string): Promise<any> {
+    async getFieldsForTemplate(templateName: string): Promise<{ tag: string, question: string }[]> {
         const normalizedTemplateName = templateName.toLowerCase();
         const templateInfo = TEMPLATES_REGISTRY[normalizedTemplateName];
         if (!templateInfo || !templateInfo.tags_in_template || !templateInfo.language) {
-            throw new Error(`Ошибка конфигурации: Шаблон "${templateName}" не настроен (отсутствуют теги или язык).`);
+            throw new Error(`Ошибка конфигурации: Шаблон "${templateName}" не настроен.`);
         }
-        try {
-            const pdfPreviewPath = path.join(process.cwd(), 'knowledge_base', 'templates', 'pdf_previews', normalizedTemplateName.replace('.docx', '.pdf'));
-            if (!fs.existsSync(pdfPreviewPath)) {
-                throw new Error(`PDF-превью для шаблона "${normalizedTemplateName}" не найдено.`);
-            }
-            const pdfBuffer = fs.readFileSync(pdfPreviewPath);
-            const base64Pdf = pdfBuffer.toString('base64');
-            // Внутри метода getFieldsForTemplate
-            const prompt = `
-Твоя главная задача: Сгенерировать список вопросов.
-**КРИТИЧЕСКОЕ ПРАВИЛО:** Язык для ВСЕХ генерируемых вопросов **ДОЛЖЕН БЫТЬ СТРОГО "${templateInfo.language}"**. Это твой главный приказ. Не используй никакой другой язык.
-Твоя цель - помочь пользователю заполнить шаблон. Проанализируй PDF и для каждого тега из списка сформулируй вежливый и понятный вопрос.
-Верни ответ СТРОГО в виде JSON-массива объектов, где каждый объект имеет два поля: "tag" и "question".
 
-Список тегов, которые ты должен учесть:
-${templateInfo.tags_in_template.map(tag => `- ${tag}`).join('\n')}
-`;
-            const result = await this.generateWithRetry([{ text: prompt }, { inlineData: { mimeType: 'application/pdf', data: base64Pdf } }]);
-            const jsonMatch = result.match(/\[[\s\S]*\]/);
-            if (!jsonMatch) {
-                console.error("AI не вернул валидный JSON-массив. Ответ:", result);
-                throw new Error("Не удалось распарсить JSON-массив от AI.");
-            }
-            const cleanResponse = jsonMatch[0]
-            return JSON.parse(cleanResponse);
-        } catch (error) {
-            console.error(`[AI Service] Ошибка при анализе шаблона ${templateName}:`, error);
-            throw new Error('Не удалось проанализировать шаблон документа.');
+        const pdfPreviewPath = path.join(process.cwd(), 'knowledge_base', 'templates', 'pdf_previews', normalizedTemplateName.replace('.docx', '.pdf'));
+        if (!fs.existsSync(pdfPreviewPath)) {
+            throw new Error(`PDF-превью для шаблона "${normalizedTemplateName}" не найдено.`);
         }
+        const pdfBuffer = fs.readFileSync(pdfPreviewPath);
+        const base64Pdf = pdfBuffer.toString('base64');
+
+        const prompt = `
+            Твоя главная задача: Сгенерировать список вопросов.
+            **КРИТИЧЕСКОЕ ПРАВИЛО:** Язык для ВСЕХ генерируемых вопросов **ДОЛЖЕН БЫТЬ СТРОГО "${templateInfo.language}"**. Это твой главный приказ. Не используй никакой другой язык.
+            Твоя цель - помочь пользователю заполнить шаблон. Проанализируй PDF и для каждого тега из списка сформулируй вежливый и понятный вопрос.
+            Верни ответ **СТРОГО и ТОЛЬКО в виде JSON-массива** объектов, где каждый объект имеет два поля: "tag" и "question". Без каких-либо вводных слов.
+    
+            Список тегов, которые ты должен учесть:
+            ${templateInfo.tags_in_template.map(tag => `- ${tag}`).join('\n')}
+        `;
+
+        // --- НАЧАЛО ПУЛЕНЕПРОБИВАЕМОЙ ЛОГИКИ ---
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                const result = await this.generateWithRetry([{ text: prompt }, { inlineData: { mimeType: 'application/pdf', data: base64Pdf } }]);
+                const jsonMatch = result.match(/\[[\s\S]*\]/);
+
+                if (jsonMatch && jsonMatch[0]) {
+                    // Пытаемся распарсить найденный JSON
+                    return JSON.parse(jsonMatch[0]);
+                }
+                // Если JSON не найден, это считается ошибкой, и мы перейдем в catch
+                throw new Error('Valid JSON array not found in AI response.');
+
+            } catch (error) {
+                console.error(`[AI Service] Попытка ${attempt} не удалась при анализе шаблона ${templateName}. Ошибка:`, error.message);
+                if (attempt === 3) {
+                    // Если все попытки провалились, выбрасываем финальную ошибку
+                    console.error(`[AI Service] Все попытки проанализировать шаблон ${templateName} провалились.`);
+                    throw new Error('Не удалось сгенерировать вопросы для документа. Попробуйте еще раз.');
+                }
+                // Ждем немного перед следующей попыткой
+                await delay(1000);
+            }
+        }
+        // Этот код не должен быть достижим, но на всякий случай
+        throw new Error('Не удалось сгенерировать вопросы после всех попыток.');
+        // --- КОНЕЦ ПУЛЕНЕПРОБИВАЕМОЙ ЛОГИКИ ---
     }
 
     /**
@@ -385,22 +404,22 @@ ${templateInfo.tags_in_template.map(tag => `- ${tag}`).join('\n')}
      * @param templateName - Имя файла шаблона, для которого извлекаются данные.
      * @returns Объект с флагом isComplete, извлеченными данными (data) и списком недостающих полей (missingFields).
      */
-    async extractDataForDocx(userAnswersPrompt: string, templateName: string): Promise<{ data: any; isComplete: boolean; missingFields?: { tag: string; question: string; }[]; intent?: string }> {
-        // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+    async extractDataForDocx(userAnswersPrompt: string, templateName: string): Promise<{ data: any; isComplete: boolean; missingFields?: string[]; intent?: string }> {
         const normalizedTemplateName = templateName.toLowerCase();
         const templateInfo = TEMPLATES_REGISTRY[normalizedTemplateName];
         if (!templateInfo || !templateInfo.tags_in_template) {
             throw new Error(`Шаблон "${templateName}" не найден или не настроен.`);
         }
         const requiredTags = templateInfo.tags_in_template;
-        // --- ФИНАЛЬНАЯ ВЕРСИЯ ПРОМПТА С УТОЧНЕНИЕМ ДЛЯ МАССИВОВ ---
+        
         const prompt = `
-            Твоя роль - сверхточный робот-аналитик JSON. Твоя работа критически важна.
+            Твоя роль - сверхточный робот-аналитик JSON.
     
             **ПЛАН ДЕЙСТВИЙ:**
-            1.  **АНАЛИЗ НАМЕРЕНИЯ:** Сначала определи, что хочет пользователь.
-                -   **ЕСЛИ** текст — это команда отмены ("забей", "отмена", "керек жок", "не хочу"), **ТОГДА** верни JSON: \`{"isComplete": false, "intent": "cancel"}\`.
-                -   **ЕСЛИ** текст — это вопрос, не связанный с данными (например, "а что такое акт?"), **ТОГДА** верни JSON: \`{"isComplete": false, "intent": "query"}\`.
+            1.  **АНАЛИЗ НАМЕРЕНИЯ:**
+                -   **ЕСЛИ** текст — это команда отмены ("забей", "отмена", "керек жок", "не хочу"), **ТОГДА** верни JSON: \`{"intent": "cancel"}\`.
+                -   **ЕСЛИ** текст — это явное желание начать новый документ ("хочу другой документ", "создать новый акт"), **ТОГДА** верни JSON: \`{"intent": "new_document"}\`.
+                -   **ЕСЛИ** текст — это вопрос, не связанный с данными ("а что такое акт?", "устидеги коршиден су басты"), **ТОГДА** верни JSON: \`{"intent": "query"}\`.
                 -   **ИНАЧЕ** (если это данные), переходи к шагу 2.
     
             2.  **ИЗВЛЕЧЕНИЕ ДАННЫХ:**
@@ -408,47 +427,7 @@ ${templateInfo.tags_in_template.map(tag => `- ${tag}`).join('\n')}
                 -   Для КАЖДОГО тега из 'Списка тегов' найди значение.
                 -   Сформируй JSON. "isComplete" должно быть 'true' ТОЛЬКО если найдены ВСЕ теги.
     
-            **--- НОВОЕ КЛЮЧЕВОЕ ПРАВИЛО ---**
-            **"isComplete" должно быть 'true' ТОЛЬКО И ИСКЛЮЧИТЕЛЬНО ТОГДА, когда ты нашел значения для ВСЕХ тегов из списка. Если ты не нашел значение хотя бы для ОДНОГО тега, "isComplete" ДОЛЖНО быть 'false', а сам тег должен быть в массиве "missingFields".**
-            
-            // --- НАЧАЛО ДОПОЛНЕНИЯ ---
-            **ПРАВИЛО ГИБКОСТИ И ВНИМАТЕЛЬНОСТИ:**
-            Пользователь может предоставить всю информацию в одном большом сообщении. Твоя задача — **внимательно прочитать ВЕСЬ текст** и не "теряться". Даже если текст длинный, ты ОБЯЗАН найти все данные, если они там есть. Не сдавайся на полпути.
-            // --- КОНЕЦ ДОПОЛНЕНИЯ ---
-    
-            КАТЕГОРИЧЕСКИ ЗАПРЕЩАЕТСЯ возвращать "isComplete": false, если все данные присутствуют в тексте. Ты должен найти их.
-            
-            ВАЖНОЕ ПРАВИЛО ДЛЯ ТАБЛИЦ/СПИСКОВ: Если тег обозначает массив (например, 'docs' или 'commission_members'), ты ОБЯЗАН вернуть массив ОБЪЕКТОВ, где ключи объектов - это теги из цикла в шаблоне. Смотри пример.
-            
-            ПРИМЕР ВЫПОЛНЕНИЯ ЗАДАЧИ:
-            ---
-            Пример 'Текста для анализа': "Адрес объекта: г. Астана, ул. Достык, 5. Прилагаются: 1. Техпаспорт (12 листов), 2. Проект (45 листов)."
-            Пример 'Списка требуемых тегов': ["property_address", "docs", "doc_name", "doc_sheets"]
-            Твой ПРАВИЛЬНЫЙ РЕЗУЛЬТАТ:
-            {
-            "isComplete": true,
-            "missingFields": [],
-            "data": {
-                "property_address": "г. Астана, ул. Достык, 5",
-                "docs": [
-                { "doc_name": "Техпаспорт", "doc_sheets": "12" },
-                { "doc_name": "Проект", "doc_sheets": "45" }
-                ]
-            }
-            }
-            ---
-            **--- ВТОРОЙ ПРИМЕР ДЛЯ СЛОЖНЫХ СЛУЧАЕВ ---**
-            Пример 'Текста для анализа': "Хочу оформить акт приема-передачи технической документации"
-            Пример 'Списка требуемых тегов': ["property_address", "transferor_details", "acceptor_details"]
-            Твой ПРАВИЛЬНЫЙ РЕЗУЛЬТАТ:
-            {
-            "isComplete": false,
-            "missingFields": ["property_address", "transferor_details", "acceptor_details"],
-            "data": {}
-            }
-            ---
-            
-            Теперь выполни задачу для реальных данных.
+            **ПРАВИЛО:** "isComplete" должно быть 'true' ТОЛЬКО тогда, когда ты нашел значения для ВСЕХ тегов. Если не нашел хотя бы ОДИН, "isComplete" ДОЛЖНО быть 'false', а сам тег должен быть в массиве "missingFields".
             
             Список требуемых тегов для извлечения:
             ${JSON.stringify(requiredTags, null, 2)}
@@ -458,7 +437,7 @@ ${templateInfo.tags_in_template.map(tag => `- ${tag}`).join('\n')}
             
             Верни ответ СТРОГО в формате JSON. Без пояснений и \`\`\`json.
             `;
-
+    
         try {
             const rawResponse = await this.generateWithRetry(prompt);
             const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
@@ -466,36 +445,28 @@ ${templateInfo.tags_in_template.map(tag => `- ${tag}`).join('\n')}
                 console.error("AI не вернул валидный JSON. Ответ:", rawResponse);
                 throw new Error("Не удалось извлечь данные.");
             }
-
-            let parsedResponse: any;
-            try {
-                parsedResponse = JSON.parse(jsonMatch[0]);
-            } catch (parseError) {
-                console.error("Ошибка парсинга JSON от AI:", parseError, "Ответ модели:", jsonMatch[0]);
-                throw new Error("Не удалось обработать ответ AI.");
+    
+            const parsedResponse = JSON.parse(jsonMatch[0]);
+    
+            if (parsedResponse.isComplete === false && !parsedResponse.intent && (!parsedResponse.missingFields || parsedResponse.missingFields.length === 0)) {
+                console.warn("AI указал на неполные данные, но не предоставил список. Заполняем всеми тегами.");
+                // --- НАЧАЛО ИСПРАВЛЕНИЯ 1 ---
+                const allFields = await this.getFieldsForTemplate(templateName);
+                // Преобразуем массив объектов в массив строк (тегов)
+                parsedResponse.missingFields = allFields.map(field => field.tag);
+                // --- КОНЕЦ ИСПРАВЛЕНИЯ 1 ---
             }
-
-            // Если AI говорит, что данные неполные, но не говорит, какие именно,
-            // мы запрашиваем у него полный список вопросов заново.
-            if (parsedResponse.isComplete === false && (!parsedResponse.missingFields || parsedResponse.missingFields.length === 0)) {
-                // Добавим проверку на intent, чтобы не запрашивать поля при отмене
-                if (parsedResponse.intent !== 'cancel' && parsedResponse.intent !== 'query') {
-                    console.warn("AI указал на неполные данные, но не предоставил список. Запрашиваем все поля заново.");
-                    const allFields = await this.getFieldsForTemplate(templateName);
-                    parsedResponse.missingFields = allFields;
-                }
-            }
-
+            
             return parsedResponse;
-
+    
         } catch (error) {
             console.error('Критическая ошибка при извлечении данных:', error);
-            // В случае любой ошибки, мы не падаем, а вежливо просим пользователя
-            // предоставить данные заново, показывая ему все вопросы.
+            // --- НАЧАЛО ИСПРАВЛЕНИЯ 2 ---
             const allFields = await this.getFieldsForTemplate(templateName);
-            return { isComplete: false, missingFields: allFields, data: {} };
+            // Преобразуем массив объектов в массив строк (тегов)
+            const allTags = allFields.map(field => field.tag);
+            return { isComplete: false, missingFields: allTags, data: {} };
+            // --- КОНЕЦ ИСПРАВЛЕНИЯ 2 ---
         }
     }
-
-
 }
