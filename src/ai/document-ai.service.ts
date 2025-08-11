@@ -141,7 +141,7 @@ export class DocumentAiService implements OnModuleInit {
       */
     async startDocumentGeneration(prompt: string, userId: number): Promise<any> {
         const language = this.detectLanguage(prompt);
-        const history = await this.chatHistoryService.getHistory(userId, ChatType.GENERAL);
+        const history = await this.chatHistoryService.getHistory(userId, ChatType.DOCUMENT);
 
         const intentDetectionPrompt = `
       Твоя задача - найти в "Списке шаблонов" тот, который лучше всего соответствует "Запросу пользователя".
@@ -163,7 +163,7 @@ export class DocumentAiService implements OnModuleInit {
             const fields = await this.getFieldsForTemplate(parsed.templateName);
             const questions = await this.formatQuestionsForUser(fields, parsed.templateName);
             const responsePayload = { action: 'collect_data', templateName: parsed.templateName, questions };
-            await this.chatHistoryService.addMessageToHistory(userId, prompt, JSON.stringify(responsePayload), ChatType.GENERAL);
+            await this.chatHistoryService.addMessageToHistory(userId, prompt, JSON.stringify(responsePayload), ChatType.DOCUMENT);
             return responsePayload;
         } else {
             // Если нужна кларификация, возвращаем ее
