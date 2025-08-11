@@ -149,18 +149,39 @@ export class DocumentAiService implements OnModuleInit {
         if (user.doc_chat_template) {
             const { data, isComplete, missingFields, intent } = await this.extractDataForDocx(prompt, user.doc_chat_template);
     
+            // Сценарий "Отмена"
             if (intent === 'cancel') {
                 await this.usersService.resetDocChatState(userId);
                 const responseMessage = "Действие отменено. Какой документ вы хотели бы создать теперь?";
                 return { type: 'chat', content: { action: 'clarification', message: responseMessage } };
             }
     
+            // --- НАЧАЛО ИСПРАВЛЕНИЯ 2 ---
+    
+            // Сценарий "Хочу новый документ"
+            if (intent === 'new_document') {
+                // Сбрасываем состояние и ПОВТОРНО ОБРАБАТЫВАЕМ тот же промпт, но уже в чистом состоянии
+                await this.usersService.resetDocChatState(userId);
+                // Вместо рекурсивного вызова, просто дублируем логику поиска шаблона
+                const intentResult = await this.findTemplate(prompt, userId);
+                if (intentResult.templateName) {
+                    const questions = await this.getQuestionsForTemplate(intentResult.templateName);
+                    await this.usersService.setDocChatState(userId, intentResult.templateName, crypto.randomBytes(16).toString('hex'));
+                    return { type: 'chat', content: questions };
+                } else {
+                    const clarification = intentResult.clarification || "Уточните, какой документ вам нужен?";
+                    return { type: 'chat', content: { action: 'clarification', message: clarification } };
+                }
+            }
+    
+            // Сценарий "Отвлеченный вопрос" - теперь он тоже сбрасывает состояние
             if (intent === 'query') {
-                const responseMessage = "Это похоже на общий вопрос. Для консультаций, пожалуйста, воспользуйтесь окном 'ИИ-Чат'.\n\nЗдесь мы можем продолжить оформление вашего документа. Просто предоставьте данные, которые я запрашивал ранее.";
-                // Мы не сбрасываем состояние, просто даем подсказку
+                await this.usersService.resetDocChatState(userId); // Сбрасываем состояние
+                const responseMessage = "Это похоже на общий вопрос. Для консультаций, пожалуйста, воспользуйтесь окном 'ИИ-Чат'. Если вы хотите создать новый документ, просто назовите его.";
                 return { type: 'chat', content: { action: 'clarification', message: responseMessage } };
             }
-            // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+            
+            // --- КОНЕЦ ИСПРАВЛЕНИЯ 2 ---
     
             if (!isComplete) {
                 const missingQuestions = (missingFields || []).map(f => f.question).join('\n- ');
@@ -170,18 +191,12 @@ export class DocumentAiService implements OnModuleInit {
     
             const docxBuffer = this.docxService.generateDocx(user.doc_chat_template, data);
             await this.usersService.resetDocChatState(userId);
-            
-            if (user.tariff === 'Базовый') {
-                await this.usersService.setLastGenerationDate(user.id, new Date());
-            }
-    
-            const successMessage = `Документ "${user.doc_chat_template}" успешно сгенерирован.`;
             return { type: 'file', content: docxBuffer, fileName: user.doc_chat_template };
         }
     
-        // ... остальная логика для поиска нового шаблона
+        // Этот блок остается для первичного определения шаблона
         const intentResult = await this.findTemplate(prompt, userId);
-        
+    
         if (intentResult.templateName) {
             const questions = await this.getQuestionsForTemplate(intentResult.templateName);
             await this.usersService.setDocChatState(userId, intentResult.templateName, crypto.randomBytes(16).toString('hex'));
