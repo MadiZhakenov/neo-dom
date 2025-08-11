@@ -3,7 +3,9 @@ import { MigrationInterface, QueryRunner } from "typeorm";
 export class FinalSchema1754879688329 implements MigrationInterface {
     name = 'FinalSchema1754879688329'
 
-    public async up(queryRunner: QueryRunner): Promise<void> {
+    public async up(queryRunner: QueryRunner): Promise<void> 
+    {
+        await queryRunner.query(`CREATE TYPE "public"."chat_message_role_enum" AS ENUM('user', 'model')`);
         await queryRunner.query(`CREATE TYPE "public"."chat_message_type_enum" AS ENUM('chat', 'document')`);
         await queryRunner.query(`CREATE TABLE "chat_message" ("id" SERIAL NOT NULL, "role" "public"."chat_message_role_enum" NOT NULL, "content" text NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "type" "public"."chat_message_type_enum" NOT NULL DEFAULT 'chat', "userId" integer, CONSTRAINT "PK_3cc0d85193aade457d3077dd06b" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE TABLE "users" ("id" SERIAL NOT NULL, "email" character varying NOT NULL, "password_hash" character varying NOT NULL, "tariff" character varying NOT NULL DEFAULT 'Базовый', "last_generation_date" TIMESTAMP, "full_name" character varying, "phone" character varying, "role" character varying NOT NULL DEFAULT 'resident', "subscription_expires_at" TIMESTAMP, "password_reset_token" character varying, "password_reset_expires" TIMESTAMP, "password_change_required" boolean NOT NULL DEFAULT false, "generation_count" integer NOT NULL DEFAULT '0', CONSTRAINT "UQ_97672ac88f789774dd47f7c8be3" UNIQUE ("email"), CONSTRAINT "PK_a3ffb1c0c8416b9fc6f907b7433" PRIMARY KEY ("id"))`);
@@ -41,6 +43,7 @@ export class FinalSchema1754879688329 implements MigrationInterface {
         await queryRunner.query(`DROP TABLE "users"`);
         await queryRunner.query(`DROP TABLE "chat_message"`);
         await queryRunner.query(`DROP TYPE "public"."chat_message_type_enum"`);
+        await queryRunner.query(`DROP TYPE "public"."chat_message_role_enum"`);
     }
 
 }
