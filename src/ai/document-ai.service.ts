@@ -146,9 +146,7 @@ export class DocumentAiService implements OnModuleInit {
     async processDocumentMessage(prompt: string, user: User): Promise<{ type: 'chat' | 'file'; content: any; fileName?: string }> {
         const userId = user.id;
     
-        // --- НАЧАЛО НОВОЙ ЛОГИКИ ---
-    
-        // Если пользователь уже в процессе генерации, обрабатываем ответ
+        // --- БЛОК 1: ОБРАБОТКА ДАННЫХ, КОГДА ШАБЛОН УЖЕ АКТИВЕН ---
         if (user.doc_chat_template) {
             const extractionResult = await this.extractDataForDocx(prompt, user.doc_chat_template);
     
@@ -157,56 +155,51 @@ export class DocumentAiService implements OnModuleInit {
                 await this.usersService.resetDocChatState(userId); // Сбрасываем состояние для всех намерений
     
                 if (extractionResult.intent === 'cancel') {
-                    return { type: 'chat', content: { action: 'clarification', message: "Действие отменено. Какой документ вы хотите создать теперь?" } };
+                    return { type: 'chat', content: { action: 'clarification', message: "Действие отменено. Какой документ вы хотели бы создать теперь?" } };
                 }
                 if (extractionResult.intent === 'query') {
-                    return { type: 'chat', content: { action: 'clarification', message: "Это похоже на общий вопрос. Для консультаций воспользуйтесь 'ИИ-Чатом'. Если хотите создать новый документ - просто назовите его." } };
+                    return { type: 'chat', content: { action: 'clarification', message: "Это похоже на общий вопрос. Для консультаций, пожалуйста, воспользуйтесь 'ИИ-Чатом'. Если хотите создать новый документ - просто назовите его." } };
                 }
                 if (extractionResult.intent === 'new_document') {
-                    // Если пользователь хочет новый документ, мы сбросили состояние и теперь обработаем этот же промпт в блоке ниже
+                    // Если пользователь хочет новый документ, состояние сброшено.
+                    // Теперь система обработает этот же промпт в Блоке 2, как будто это новый запрос.
                 }
-            }
+            } 
             // Если это были данные для заполнения
-            else if (extractionResult.isComplete) {
-                const docxBuffer = this.docxService.generateDocx(user.doc_chat_template, extractionResult.data);
-                await this.usersService.resetDocChatState(userId);
-                return { type: 'file', content: docxBuffer, fileName: user.doc_chat_template };
-            }
-            // Если данные неполные, но они есть
-            else if (extractionResult.missingFields && extractionResult.missingFields.length > 0) {
-                const missingQuestions = extractionResult.missingFields.map(f => f.question).join('\n- ');
-                const responseMessage = `Отлично, я это записал. Для завершения, предоставьте:\n\n- ${missingQuestions}`;
-                return { type: 'chat', content: { action: 'collect_data', message: responseMessage } };
+            else {
+                if (extractionResult.isComplete) {
+                    const docxBuffer = this.docxService.generateDocx(user.doc_chat_template, extractionResult.data);
+                    await this.usersService.resetDocChatState(userId);
+                    return { type: 'file', content: docxBuffer, fileName: user.doc_chat_template };
+                } 
+                // --- НАДЕЖНАЯ ПРОВЕРКА НА НЕДОСТАЮЩИЕ ПОЛЯ ---
+                else if (extractionResult.missingFields && extractionResult.missingFields.length > 0) {
+                    const missingQuestions = extractionResult.missingFields.map(f => f.question).join('\n- ');
+                    const responseMessage = `Отлично, я это записал. Для завершения, предоставьте:\n\n- ${missingQuestions}`;
+                    return { type: 'chat', content: { action: 'collect_data', message: responseMessage } };
+                } else {
+                    // Если AI вернул isComplete: false, но не указал полей - это ошибка.
+                    // Переспрашиваем ВСЕ вопросы заново, чтобы не показывать пустой список.
+                    const questions = await this.getQuestionsForTemplate(user.doc_chat_template);
+                    return { type: 'chat', content: { ...questions, message: "Извините, я не смог разобрать ваш ответ. Давайте попробуем еще раз. " + questions.questions }};
+                }
             }
         }
     
-        // Этот блок выполняется для всех новых запросов (и для `new_document`)
+        // --- БЛОК 2: ПОИСК ШАБЛОНА ДЛЯ НОВОГО ЗАПРОСА ---
+        // Этот блок выполняется, если нет активного шаблона ИЛИ если пользователь захотел новый документ.
+        
         const intentResult = await this.findTemplate(prompt, userId);
+    
+        // Если шаблон не найден, просим уточнить
         if (!intentResult.templateName) {
             return { type: 'chat', content: { action: 'clarification', message: intentResult.clarification || "Уточните, какой документ вам нужен?" } };
         }
     
-        // --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ ДЛЯ ONE-SHOT ---
-        // Попытка извлечь данные СРАЗУ
-        const extractionResult = await this.extractDataForDocx(prompt, intentResult.templateName);
-        
-        // Если все данные удалось извлечь за один раз
-        if (extractionResult.isComplete) {
-            const docxBuffer = this.docxService.generateDocx(intentResult.templateName, extractionResult.data);
-            return { type: 'file', content: docxBuffer, fileName: intentResult.templateName };
-        }
-    
-        // Если данные неполные или их не было, задаем вопросы
+        // Если шаблон найден, устанавливаем состояние и задаем ПОЛНЫЙ список вопросов.
         const questions = await this.getQuestionsForTemplate(intentResult.templateName);
         await this.usersService.setDocChatState(userId, intentResult.templateName, crypto.randomBytes(16).toString('hex'));
         
-        // Если данные были частично извлечены, сообщаем об этом
-        if (extractionResult.missingFields && extractionResult.missingFields.length > 0) {
-            const missingQuestions = extractionResult.missingFields.map(f => f.question).join('\n- ');
-            return { type: 'chat', content: { action: 'collect_data', message: `Отлично! Я уже понял часть информации. Теперь, чтобы закончить, предоставьте:\n\n- ${missingQuestions}` }};
-        }
-    
-        // Если данных не было, просто задаем все вопросы
         return { type: 'chat', content: questions };
     }
     
