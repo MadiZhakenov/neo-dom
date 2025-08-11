@@ -68,27 +68,39 @@ export class ChatAiService implements OnModuleInit {
       * @param apiKey - API ключ для сервиса эмбеддингов Google.
       */
     private async initializeVectorStore(apiKey: string) {
-        console.log('[AI Service] Инициализация векторной базы знаний...');
+        console.log('[AI Service] Initializing Vector Store...');
         try {
             const cacheDir = path.join(process.cwd(), '.pdf-cache');
+            console.log(`[AI Service] Looking for cache in: ${cacheDir}`);
+
             if (!fs.existsSync(cacheDir)) {
-                console.warn('[AI Service] Папка .pdf-cache не найдена.');
+                console.error('[AI Service] FATAL: .pdf-cache directory not found. RAG will not work.');
                 return;
             }
+
             const fileNames = fs.readdirSync(cacheDir);
+            if (fileNames.length === 0) {
+                console.error('[AI Service] FATAL: .pdf-cache directory is empty. RAG will not work.');
+                return;
+            }
+
+            console.log(`[AI Service] Found ${fileNames.length} files in .pdf-cache. Creating embeddings...`);
+
             const documents = fileNames.map(fileName => ({
                 pageContent: fs.readFileSync(path.join(cacheDir, fileName), 'utf-8'),
                 metadata: { source: fileName.replace('.txt', '') },
             }));
-            if (documents.length === 0) { return; }
+
             const splitter = new RecursiveCharacterTextSplitter({ chunkSize: 2000, chunkOverlap: 200 });
             const docs = await splitter.splitDocuments(documents);
-            console.log(`[AI Service] Документы разделены на ${docs.length} чанков.`);
+
             const embeddings = new GoogleGenerativeAIEmbeddings({ apiKey, model: "embedding-001", taskType: TaskType.RETRIEVAL_DOCUMENT });
             this.vectorStore = await MemoryVectorStore.fromDocuments(docs, embeddings);
-            console.log('[AI Service] Векторная база знаний создана.');
+
+            console.log(`[AI Service] Vector Store created successfully with ${docs.length} document chunks.`);
+
         } catch (error) {
-            console.error('[AI Service] Ошибка при инициализации векторной базы:', error);
+            console.error('[AI Service] CRITICAL ERROR during Vector Store initialization:', error);
         }
     }
     /**

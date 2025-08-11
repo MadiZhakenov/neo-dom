@@ -1,57 +1,57 @@
-// cache-knowledge-base.js
+// Файл: cache-knowledge-base.js
+// ЗАМЕНИТЕ ВЕСЬ ФАЙЛ ЭТИМ КОДОМ
 
 const fs = require('fs');
 const path = require('path');
 const pdf = require('pdf-parse');
 
-// --- ИЗМЕНЕНИЕ: Строим все пути от местоположения этого файла ---
-// __dirname всегда указывает на папку, в которой лежит ТЕКУЩИЙ файл.
-const basePath = __dirname; 
+const basePath = __dirname; // Используем директорию, где лежит сам скрипт
+console.log(`[Cache Script] Base path is: ${basePath}`);
 
-const inputDirs = [
-  path.join(basePath, 'knowledge_base'),
-  path.join(basePath, 'knowledge_base', 'templates', 'pdf_previews'),
-];
+const knowledgeBaseDir = path.join(basePath, 'knowledge_base');
 const cacheDir = path.join(basePath, '.pdf-cache');
 
 async function createCache() {
-  console.log('--- НАЧИНАЮ КЭШИРОВАНИЕ БАЗЫ ЗНАНИЙ ---');
-  if (!fs.existsSync(cacheDir)) {
-    console.log('Создаю папку для кэша: .pdf-cache');
-    fs.mkdirSync(cacheDir);
-  }
+    console.log('--- [Cache Script] STARTING KNOWLEDGE BASE CACHING ---');
 
-  for (const dir of inputDirs) {
-    if (!fs.existsSync(dir)) {
-      console.log(`Пропускаю: Папка не найдена -> ${dir}`);
-      continue;
+    if (!fs.existsSync(knowledgeBaseDir)) {
+        console.error(`[Cache Script] ERROR: knowledge_base directory not found at ${knowledgeBaseDir}!`);
+        return;
     }
 
-    const fileNames = fs.readdirSync(dir);
-    const pdfFiles = fileNames.filter(file => file.toLowerCase().endsWith('.pdf'));
+    if (!fs.existsSync(cacheDir)) {
+        console.log(`[Cache Script] Creating cache directory: .pdf-cache`);
+        fs.mkdirSync(cacheDir);
+    }
+
+    const allFiles = fs.readdirSync(knowledgeBaseDir);
+    const pdfFiles = allFiles.filter(file => file.toLowerCase().endsWith('.pdf'));
 
     if (pdfFiles.length === 0) {
-      console.log(`Нет PDF-файлов в папке ${dir}`);
-      continue;
+        console.warn(`[Cache Script] WARNING: No PDF files found in ${knowledgeBaseDir}.`);
+        return;
     }
-    console.log(`\nПапка: ${dir}`);
-    console.log(`Найдено ${pdfFiles.length} PDF-файлов. Начинаю обработку...`);
+
+    console.log(`[Cache Script] Found ${pdfFiles.length} PDF files. Starting processing...`);
+    let processedCount = 0;
 
     for (const fileName of pdfFiles) {
-      try {
-        const filePath = path.join(dir, fileName);
-        const cachePath = path.join(cacheDir, `${fileName}.txt`);
-        console.log(`- Обрабатываю: ${fileName}...`);
-        const dataBuffer = fs.readFileSync(filePath);
-        const data = await pdf(dataBuffer);
-        fs.writeFileSync(cachePath, data.text);
-        console.log(`  ...УСПЕХ! Текст сохранен в .pdf-cache/${fileName}.txt`);
-      } catch (error) {
-        console.error(`  ...ПРОВАЛ! Ошибка при обработке файла ${fileName}:`, error.message);
-      }
+        try {
+            const filePath = path.join(knowledgeBaseDir, fileName);
+            const cachePath = path.join(cacheDir, `${fileName}.txt`);
+
+            console.log(`- Processing: ${fileName}...`);
+            const dataBuffer = fs.readFileSync(filePath);
+            const data = await pdf(dataBuffer);
+            fs.writeFileSync(cachePath, data.text);
+            console.log(`  ...SUCCESS! Text saved to .pdf-cache/${fileName}.txt`);
+            processedCount++;
+        } catch (error) {
+            console.error(`  ...FAILURE! Error processing file ${fileName}:`, error.message);
+        }
     }
-  }
-  console.log('\n--- КЭШИРОВАНИЕ ЗАВЕРШЕНО ---');
+
+    console.log(`\n--- [Cache Script] CACHING FINISHED. Processed ${processedCount}/${pdfFiles.length} files. ---`);
 }
 
 createCache();
