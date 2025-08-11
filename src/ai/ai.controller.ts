@@ -61,29 +61,35 @@ export class AiController {
   }
 
   @UseGuards(JwtAuthGuard)
-  @Post('documents') // <-- Меняем URL на единый
-  async handleDocumentChat(@Request() req, @Body() generateDto: GenerateDocumentDto, @Res() res: Response) {
+  @Post('documents')
+  async handleDocumentChat(
+    @Request() req,
+    @Body() generateDto: GenerateDocumentDto,
+    @Res() res: Response,
+  ) {
     const userId = req.user.userId;
     const user = await this.usersService.findOneById(userId);
     if (!user) { throw new NotFoundException('Пользователь не найден.'); }
 
+    // --- НАЧАЛО ФИНАЛЬНОЙ, ПРАВИЛЬНОЙ ЛОГИКИ ---
+
+    // 1. Получаем "сырой" ответ от AI-сервиса.
     const response = await this.documentAiService.processDocumentMessage(generateDto.prompt, user);
 
     if (response.type === 'file') {
+      // --- ИСПРАВЛЕНИЕ: ДОБАВЛЯЕМ ПРОВЕРКУ ---
       if (!response.fileName) {
         // Этого не должно произойти, но добавляем для безопасности
         console.error("Ошибка: сервис вернул файл, но без имени файла.");
         return res.status(500).json({ aiResponse: "Внутренняя ошибка: отсутствует имя файла." });
       }
 
-      // Отправка файла
+      const successMessage = `Документ "${response.fileName}" успешно сгенерирован.`;
+      await this.chatHistoryService.addMessageToHistory(userId, generateDto.prompt, successMessage, ChatType.DOCUMENT);
+
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
       res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(response.fileName)}.docx`);
       return res.send(response.content);
-    } else {
-      // Отправка JSON (вопросы или уточнения)
-      return res.status(200).json({ aiResponse: response.content });
     }
   }
-
 }

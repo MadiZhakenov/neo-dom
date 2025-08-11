@@ -151,7 +151,6 @@ export class DocumentAiService implements OnModuleInit {
           if (!isComplete) {
             const missingQuestions = (missingFields || []).map(f => f.question).join('\n- ');
             const responseMessage = `Для завершения, предоставьте:\n\n- ${missingQuestions}`;
-            await this.chatHistoryService.updateLastModelMessage(userId, responseMessage, ChatType.DOCUMENT);
             return { type: 'chat', content: { action: 'collect_data', message: responseMessage } };
           }
     
@@ -163,7 +162,6 @@ export class DocumentAiService implements OnModuleInit {
           }
     
           const successMessage = `Документ "${user.doc_chat_template}" успешно сгенерирован.`;
-          await this.chatHistoryService.updateLastModelMessage(userId, successMessage, ChatType.DOCUMENT);
           return { type: 'file', content: docxBuffer, fileName: user.doc_chat_template };
         }
     
@@ -172,11 +170,9 @@ export class DocumentAiService implements OnModuleInit {
         if (intentResult.templateName) {
           const questions = await this.getQuestionsForTemplate(intentResult.templateName);
           await this.usersService.setDocChatState(userId, intentResult.templateName, crypto.randomBytes(16).toString('hex'));
-          await this.chatHistoryService.updateLastModelMessage(userId, JSON.stringify(questions), ChatType.DOCUMENT);
           return { type: 'chat', content: questions };
         } else {
             const clarification = intentResult.clarification || "Уточните, какой документ вам нужен?";
-            await this.chatHistoryService.updateLastModelMessage(userId, clarification, ChatType.DOCUMENT);
             return { type: 'chat', content: { action: 'clarification', message: clarification } };
         }
       }
@@ -333,13 +329,18 @@ export class DocumentAiService implements OnModuleInit {
         const requiredTags = templateInfo.tags_in_template;
         // --- ФИНАЛЬНАЯ ВЕРСИЯ ПРОМПТА С УТОЧНЕНИЕМ ДЛЯ МАССИВОВ ---
         const prompt = `
-        Твоя роль - высокоточный робот по извлечению структурированных данных (Data Extractor). Твоя работа критически важна. Ошибки недопустимы.
-        
-        ТЫ ДОЛЖЕН СЛЕДОВАТЬ ЭТИМ ШАГАМ:
-        ШАГ 1: Внимательно проанализируй 'Текст для анализа' от пользователя.
-        ШАГ 2: Проанализируй 'Список требуемых тегов'.
-        ШАГ 3: Последовательно, для КАЖДОГО тега из списка, найди соответствующее ему значение в тексте.
-        ШАГ 4: Сформируй ПОЛНЫЙ JSON-объект с извлеченными данными.
+        Твоя роль - сверхточный робот-аналитик JSON. Твоя работа критически важна.
+
+        **ПЛАН ДЕЙСТВИЙ:**
+        1.  **АНАЛИЗ НАМЕРЕНИЯ:** Сначала определи, что хочет пользователь.
+            -   **ЕСЛИ** текст — это команда отмены ("забей", "отмена", "керек жок", "не хочу"), **ТОГДА** верни JSON: \`{"isComplete": false, "intent": "cancel"}\`.
+            -   **ЕСЛИ** текст — это вопрос, не связанный с данными (например, "а что такое акт?"), **ТОГДА** верни JSON: \`{"isComplete": false, "intent": "query"}\`.
+            -   **ИНАЧЕ** (если это данные), переходи к шагу 2.
+
+        2.  **ИЗВЛЕЧЕНИЕ ДАННЫХ:**
+            -   Проанализируй 'Текст для анализа'.
+            -   Для КАЖДОГО тега из 'Списка тегов' найди значение.
+            -   Сформируй JSON. "isComplete" должно быть 'true' ТОЛЬКО если найдены ВСЕ теги.
 
         **--- НОВОЕ КЛЮЧЕВОЕ ПРАВИЛО ---**
         **"isComplete" должно быть 'true' ТОЛЬКО И ИСКЛЮЧИТЕЛЬНО ТОГДА, когда ты нашел значения для ВСЕХ тегов из списка. Если ты не нашел значение хотя бы для ОДНОГО тега, "isComplete" ДОЛЖНО быть 'false', а сам тег должен быть в массиве "missingFields".**
