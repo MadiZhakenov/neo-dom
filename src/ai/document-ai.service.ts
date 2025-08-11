@@ -209,8 +209,8 @@ export class DocumentAiService implements OnModuleInit {
                 const newDoc = this.generatedDocRepo.create({
                     id: fileId,
                     user: user,
-                    originalFileName: `${user.doc_chat_template}.docx`,
-                    storagePath: `generated_documents/${fileId}.docx`
+                    originalFileName: `${user.doc_chat_template}`,
+                    storagePath: `generated_documents/${fileId}`
                 });
                 await this.generatedDocRepo.save(newDoc);
                 // --- КОНЕЦ ЛОГИКИ СОХРАНЕНИЯ ФАЙЛА ---
