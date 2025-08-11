@@ -14,7 +14,8 @@ import { ChatType } from '../chat/entities/chat-message.entity';
 import { User } from '../users/entities/user.entity'; // <-- ИСПРАВЛЕНИЕ
 import { UsersService } from '../users/users.service'; // <-- ИСПРАВЛЕНИЕ
 import { DocxService } from '../documents/docx/docx.service'; // <-- ИСПРАВЛЕНИЕ
-import * as crypto from 'crypto'; // <-- ИСПРАВЛ
+import * as crypto from 'crypto';
+import { ChatAiService } from './chat-ai.service';
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
 @Injectable()
@@ -30,6 +31,7 @@ export class DocumentAiService implements OnModuleInit {
         private readonly chatHistoryService: ChatHistoryService,
         private readonly usersService: UsersService,
         private readonly docxService: DocxService,
+        private readonly chatAiService: ChatAiService,
         
     ) { }
 
@@ -145,46 +147,50 @@ export class DocumentAiService implements OnModuleInit {
         const userId = user.id;
     
         if (user.doc_chat_template) {
-            // Вызываем extractDataForDocx как и раньше
-            const { data, isComplete, missingFields, intent } = await this.extractDataForDocx(prompt, user.doc_chat_template); // Добавляем 'intent'
-          
-            // --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+            const { data, isComplete, missingFields, intent } = await this.extractDataForDocx(prompt, user.doc_chat_template);
+    
             if (intent === 'cancel') {
-              await this.usersService.resetDocChatState(userId); // Сбрасываем состояние чата
-              const responseMessage = "Действие отменено. Какой документ вы хотели бы создать теперь?";
-              // Важно обновить историю сообщением об отмене
-              await this.chatHistoryService.updateLastModelMessage(userId, responseMessage, ChatType.DOCUMENT);
-              return { type: 'chat', content: { action: 'clarification', message: responseMessage } };
+                await this.usersService.resetDocChatState(userId);
+                const responseMessage = "Действие отменено. Какой документ вы хотели бы создать теперь?";
+                return { type: 'chat', content: { action: 'clarification', message: responseMessage } };
             }
-        
-          if (!isComplete) {
-            const missingQuestions = (missingFields || []).map(f => f.question).join('\n- ');
-            const responseMessage = `Для завершения, предоставьте:\n\n- ${missingQuestions}`;
-            return { type: 'chat', content: { action: 'collect_data', message: responseMessage } };
-          }
     
-          const docxBuffer = this.docxService.generateDocx(user.doc_chat_template, data);
-          await this.usersService.resetDocChatState(userId);
-          
-          if (user.tariff === 'Базовый') {
-            await this.usersService.setLastGenerationDate(user.id, new Date());
-          }
+            if (intent === 'query') {
+                const responseMessage = "Это похоже на общий вопрос. Для консультаций, пожалуйста, воспользуйтесь окном 'ИИ-Чат'.\n\nЗдесь мы можем продолжить оформление вашего документа. Просто предоставьте данные, которые я запрашивал ранее.";
+                // Мы не сбрасываем состояние, просто даем подсказку
+                return { type: 'chat', content: { action: 'clarification', message: responseMessage } };
+            }
+            // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
     
-          const successMessage = `Документ "${user.doc_chat_template}" успешно сгенерирован.`;
-          return { type: 'file', content: docxBuffer, fileName: user.doc_chat_template };
+            if (!isComplete) {
+                const missingQuestions = (missingFields || []).map(f => f.question).join('\n- ');
+                const responseMessage = `Для завершения, предоставьте:\n\n- ${missingQuestions}`;
+                return { type: 'chat', content: { action: 'collect_data', message: responseMessage } };
+            }
+    
+            const docxBuffer = this.docxService.generateDocx(user.doc_chat_template, data);
+            await this.usersService.resetDocChatState(userId);
+            
+            if (user.tariff === 'Базовый') {
+                await this.usersService.setLastGenerationDate(user.id, new Date());
+            }
+    
+            const successMessage = `Документ "${user.doc_chat_template}" успешно сгенерирован.`;
+            return { type: 'file', content: docxBuffer, fileName: user.doc_chat_template };
         }
     
+        // ... остальная логика для поиска нового шаблона
         const intentResult = await this.findTemplate(prompt, userId);
-    
+        
         if (intentResult.templateName) {
-          const questions = await this.getQuestionsForTemplate(intentResult.templateName);
-          await this.usersService.setDocChatState(userId, intentResult.templateName, crypto.randomBytes(16).toString('hex'));
-          return { type: 'chat', content: questions };
+            const questions = await this.getQuestionsForTemplate(intentResult.templateName);
+            await this.usersService.setDocChatState(userId, intentResult.templateName, crypto.randomBytes(16).toString('hex'));
+            return { type: 'chat', content: questions };
         } else {
             const clarification = intentResult.clarification || "Уточните, какой документ вам нужен?";
             return { type: 'chat', content: { action: 'clarification', message: clarification } };
         }
-      }
+    }
     
       private async findTemplate(prompt: string, userId: number): Promise<{ templateName?: string; clarification?: string }> {
         const history = await this.chatHistoryService.getHistory(userId, ChatType.DOCUMENT);

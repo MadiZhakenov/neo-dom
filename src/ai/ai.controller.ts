@@ -70,22 +70,28 @@ export class AiController {
     const userId = req.user.userId;
     const user = await this.usersService.findOneById(userId);
     if (!user) { throw new NotFoundException('Пользователь не найден.'); }
-
-    // --- НАЧАЛО ФИНАЛЬНОЙ, НАДЕЖНОЙ ЛОГИКИ ---
-
-    // 1. Сохраняем запрос пользователя СРАЗУ.
-    await this.chatHistoryService.addMessageToHistory(userId, generateDto.prompt, '', ChatType.DOCUMENT);
-
-    // 2. Вызываем единый "умный" метод в сервисе, который сделает всю работу.
+  
+    // --- НАЧАЛО НОВОЙ, ИСПРАВЛЕННОЙ И НАДЕЖНОЙ ЛОГИКИ ---
+  
+    // 1. Вызываем единый "умный" метод в сервисе, который сделает всю работу.
     const response = await this.documentAiService.processDocumentMessage(generateDto.prompt, user);
-
-    // 3. Обновляем ответ модели в истории.
+  
+    // 2. Формируем контент ответа модели для сохранения.
     const modelResponseContent = response.type === 'file' 
       ? `Документ "${response.fileName}" успешно сгенерирован.` 
       : JSON.stringify(response.content);
-    await this.chatHistoryService.updateLastModelMessage(userId, modelResponseContent, ChatType.DOCUMENT);
-
-    // 4. Отправляем ответ пользователю.
+  
+    // 3. Сохраняем и запрос пользователя, и ответ модели ОДНИМ вызовом в самом конце.
+    await this.chatHistoryService.addMessageToHistory(
+      userId,
+      generateDto.prompt, // Запрос пользователя
+      modelResponseContent, // Готовый ответ модели
+      ChatType.DOCUMENT
+    );
+  
+    // --- КОНЕЦ НОВОЙ ЛОГИКИ ---
+  
+    // 4. Отправляем ответ пользователю (этот блок остается без изменений).
     if (response.type === 'file') {
       if (!response.fileName) {
         return res.status(500).json({ aiResponse: "Внутренняя ошибка: отсутствует имя файла." });

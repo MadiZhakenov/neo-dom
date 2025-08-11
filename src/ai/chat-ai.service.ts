@@ -155,7 +155,7 @@ export class ChatAiService implements OnModuleInit {
        * @param userId - ID пользователя.
        * @returns Текстовый ответ от AI.
        */
-    async getChatAnswer(prompt: string, userId: number): Promise<string> {
+    async getChatAnswer(prompt: string, userId: number, boolean = true): Promise<string> {
         const language = this.detectLanguage(prompt);
         const history = await this.chatHistoryService.getHistory(userId, ChatType.GENERAL); // Указываем тип истории
         const relevantDocs = this.vectorStore ? await this.vectorStore.similaritySearch(prompt, 3) : [];
