@@ -4,6 +4,12 @@
 FROM node:18-alpine AS deps
 WORKDIR /neo-osi-backend
 
+# --- НАЧАЛО ИЗМЕНЕНИЯ ---
+# Создаем директорию для монтирования диска Render.
+# Это гарантирует, что папка будет существовать до того, как Render попытается подключить диск.
+RUN mkdir -p /var/data/generated_documents
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
 # Устанавливаем системные зависимости
 RUN apk add --no-cache build-base g++ cairo-dev jpeg-dev pango-dev giflib-dev python3
 
