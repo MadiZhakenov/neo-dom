@@ -113,41 +113,57 @@ export class DocumentAiService implements OnModuleInit {
         }
     }
 
-    private async generateWithRetry(prompt: any, history: Content[] = [], retries = 3): Promise<string> {
-        const model = history.length > 0 ? this.primaryModel : this.fallbackModel;
-        for (let i = 0; i < retries; i++) {
-            try {
-                // 1. Начинаем сессию, передавая всю предыдущую историю
-                const chatSession = model.startChat({
-                    history: history,
-                });
-                // 2. Отправляем ТОЛЬКО новый промпт, без истории
-                const result = await chatSession.sendMessage(prompt);
-                return result.response.text();
-            } catch (error) {
-                if (error.status === 503 && i < retries - 1) {
-                    const waitTime = Math.pow(2, i) * 1000;
-                    console.warn(`[AI Service] Модель перегружена (503). Повторная попытка через ${waitTime / 1000} сек...`);
-                    await delay(waitTime);
-                } else if (i === retries - 1) {
-                    console.warn('[AI Service] Все попытки для основной модели провалились. Переключаюсь на резервную модель...');
-                    try {
-                        const fallbackChatSession = this.fallbackModel.startChat({ history });
-                        const fallbackResult = await fallbackChatSession.sendMessage(prompt);
-                        return fallbackResult.response.text();
-                    } catch (fallbackError) {
-                        console.error('[AI Service] Резервная модель также не ответила.', fallbackError);
-                        throw fallbackError;
+    private async generateWithRetry(prompt: any, retries = 3): Promise<string> {
+        let lastError: any;
+    
+        // --- Попытка 1: Основная, самая мощная модель ---
+        try {
+            console.log(`[AI Service] Обращение к основной модели (gemini-1.5-pro)...`);
+            for (let attempt = 1; attempt <= retries; attempt++) {
+                try {
+                    const result = await this.primaryModel.generateContent(prompt);
+                    return result.response.text();
+                } catch (error) {
+                    if (error.status === 503 && attempt < retries) {
+                        const waitTime = Math.pow(2, attempt) * 1000; // 2, 4, 8 секунд
+                        console.warn(`[AI Service] Основная модель перегружена (503). Повторная попытка через ${waitTime / 1000} сек...`);
+                        await delay(waitTime);
+                    } else {
+                        throw error; // Выбрасываем ошибку, если она не 503 или попытки кончились
                     }
-                } else {
-                    console.error('[AI Service] Неперехватываемая ошибка от Gemini API:', error);
-                    throw error;
                 }
             }
+        } catch (error) {
+            console.error(`[AI Service] Основная модель не ответила после всех попыток. Ошибка:`, error.message);
+            lastError = error;
         }
-        // Эта строка выполнится только если все попытки, включая резервную модель, провалились.
-        throw new Error('Не удалось получить ответ от AI после всех попыток.');
+    
+        // --- Попытка 2: Резервная, более быстрая модель ---
+        try {
+            console.warn(`[AI Service] Переключаюсь на резервную модель (gemini-1.5-flash)...`);
+            for (let attempt = 1; attempt <= retries; attempt++) {
+                try {
+                    const result = await this.fallbackModel.generateContent(prompt);
+                    return result.response.text();
+                } catch (error) {
+                    if (error.status === 503 && attempt < retries) {
+                        const waitTime = Math.pow(2, attempt) * 1000;
+                        console.warn(`[AI Service] Резервная модель перегружена (503). Повторная попытка через ${waitTime / 1000} сек...`);
+                        await delay(waitTime);
+                    } else {
+                        throw error;
+                    }
+                }
+            }
+        } catch (error) {
+            console.error(`[AI Service] Резервная модель также не ответила. Ошибка:`, error.message);
+            lastError = error;
+        }
+    
+        // Если ни одна из моделей не ответила
+        throw lastError || new Error('Не удалось получить ответ от AI после всех попыток со всеми моделями.');
     }
+    
     public detectLanguage(text: string): 'ru' | 'kz' {
         const kzSpecificChars = /[әғқңөұүіһӘҒҚҢӨҰҮІҺ]/;
         if (kzSpecificChars.test(text)) { return 'kz'; }
