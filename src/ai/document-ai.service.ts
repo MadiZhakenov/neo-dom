@@ -207,11 +207,14 @@ export class DocumentAiService implements OnModuleInit {
             const currentData = user.doc_chat_pending_data || {};
             const newData = { ...currentData, ...(extractionResult.data || {}) };
             const nextIndex = currentIndex + 1;
-
+            
             if (nextIndex < allFields.length) {
                 await this.usersService.updateDocChatState(userId, nextIndex, newData);
                 const nextField = allFields[nextIndex];
-                return { type: 'chat', content: { action: 'collect_data', message: nextField.question } };
+                const message = nextField.example
+                    ? `${nextField.question}\n*Мысалы: ${nextField.example}*`
+                    : nextField.question;
+                return { type: 'chat', content: { action: 'collect_data', message: message } };
             } else {
                 let finalData = newData;
 
@@ -279,7 +282,11 @@ export class DocumentAiService implements OnModuleInit {
             const allFields = await this.getFieldsForTemplate(intentResult.templateName);
             if (allFields && allFields.length > 0) {
                 await this.usersService.startDocChat(user.id, intentResult.templateName);
-                return { type: 'chat', content: { action: 'collect_data', message: allFields[0].question } };
+                const firstField = allFields[0];
+                const message = firstField.example 
+                    ? `${firstField.question}\n*Мысалы: ${firstField.example}*` 
+                    : firstField.question;
+                return { type: 'chat', content: { action: 'collect_data', message: message } };
             }
         }
 
