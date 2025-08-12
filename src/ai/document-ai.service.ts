@@ -157,112 +157,219 @@ export class DocumentAiService implements OnModuleInit {
     }
 
     // Замените старый метод processDocumentMessage на этот
+    // async processDocumentMessage(prompt: string, user: User): Promise<DocumentProcessingResponse> {
+    //     const userId = user.id;
+    //     const language = this.detectLanguage(prompt);
+
+    //     // БЛОК 1: ПОЛЬЗОВАТЕЛЬ УЖЕ В ПРОЦЕССЕ ЗАПОЛНЕНИЯ
+    //     if (user.doc_chat_template) {
+    //         const extractionResult = await this.extractDataForDocx(prompt, user.doc_chat_template, userId);
+
+    //         // Если пользователь решил отменить или задать отвлеченный вопрос
+    //         if (extractionResult.intent) {
+    //             await this.usersService.resetDocChatState(userId);
+    //             const intentResult = await this.findTemplate(prompt); // Перепроверяем намерение уже с чистым состоянием
+    //             return this.handleClarification(intentResult, language);
+    //         }
+
+    //         // Если это были данные для заполнения
+    //         if (extractionResult.isComplete) {
+    //             // --- НАЧАЛО БЛОКА ПРОВЕРКИ ЛИМИТОВ ---
+    //             if (user.tariff === 'Базовый') {
+    //                 const now = new Date();
+    //                 if (user.last_generation_date) {
+    //                     const lastGen = new Date(user.last_generation_date);
+    //                     // Проверяем, была ли генерация в том же календарном месяце и году
+    //                     if (lastGen.getFullYear() === now.getFullYear() && lastGen.getMonth() === now.getMonth()) {
+    //                         const message = language === 'kz'
+    //                             ? "Сіз осы айдағы тегін құжат жасау лимитіңізді пайдаланып қойдыңыз. Лимитсіз генерация үшін 'Премиум' тарифіне өтіңіз."
+    //                             : "Вы уже использовали свой лимит на создание бесплатного документа в этом месяце. Для безлимитной генерации, пожалуйста, перейдите на тариф 'Премиум'.";
+
+    //                         // Важно: также сбрасываем состояние, чтобы пользователь не застрял
+    //                         await this.usersService.resetDocChatState(userId);
+    //                         return { type: 'chat', content: { action: 'clarification', message } };
+    //                     }
+    //                 }
+    //             }
+
+    //             // --- КОНЕЦ БЛОКА ПРОВЕРКИ ЛИМИТОВ ---
+
+    //             const docxBuffer = this.docxService.generateDocx(user.doc_chat_template, extractionResult.data);
+
+    //             // --- НАЧАЛО ИЗМЕНЕНИЯ ПУТИ ---
+    //             const fileId = uuidv4();
+    //             // Используем абсолютный путь, который Render понимает для дисков
+    //             const storageDir = `/var/data/render/generated_documents`;
+    //             if (!fs.existsSync(storageDir)) {
+    //                 fs.mkdirSync(storageDir, { recursive: true });
+    //             }
+    //             const storagePath = path.join(storageDir, `${fileId}.docx`);
+    //             // --- КОНЕЦ ИЗМЕНЕНИЯ ПУТИ ---
+
+    //             // Сохраняем метаданные в БД
+    //             fs.writeFileSync(storagePath, docxBuffer);
+    //             const newDoc = this.generatedDocRepo.create({ id: fileId, user: user, originalFileName: user.doc_chat_template, storagePath: storagePath });
+    //             await this.generatedDocRepo.save(newDoc);
+    //             // --- КОНЕЦ ЛОГИКИ СОХРАНЕНИЯ ФАЙЛА ---
+
+    //             await this.usersService.resetDocChatState(userId);
+
+    //             // Обновляем дату генерации ТОЛЬКО для базового тарифа после успешного создания
+    //             if (user.tariff === 'Базовый') {
+    //                 await this.usersService.setLastGenerationDate(user.id, new Date());
+    //             }
+
+    //             // --- ИЗМЕНЕНИЕ ОТВЕТА ДЛЯ ИСТОРИИ ЧАТА ---
+    //             // Формируем специальный JSON для сохранения в историю чата
+    //             const modelResponseContent = JSON.stringify({
+    //                 message: `Документ "${user.doc_chat_template}" успешно сгенерирован.`,
+    //                 fileId: fileId,
+    //                 fileName: `${user.doc_chat_template}.docx`
+    //             });
+
+    //             // Этот контент будет сохранен в историю чата в контроллере
+    //             // ВАЖНО: Мы должны передать его обратно в контроллер.
+    //             // Для этого добавим его в возвращаемый объект, чтобы контроллер мог его прочитать.
+
+    //             return {
+    //                 type: 'file',
+    //                 content: docxBuffer,
+    //                 fileName: user.doc_chat_template,
+    //                 // Добавляем специальное поле для истории чата
+    //                 historyContent: modelResponseContent
+    //             };
+    //         }
+
+    //         // Если данные неполные
+    //         const missingTags = extractionResult.missingFields;
+    //         if (missingTags && Array.isArray(missingTags) && missingTags.length > 0) {
+    //             const allFields = await this.getFieldsForTemplate(user.doc_chat_template);
+
+    //             // Эта строка теперь корректна, так как TypeScript знает, что missingTags - это string[]
+    //             const missingFieldsWithQuestions = allFields.filter(field => missingTags.includes(field.tag));
+
+    //             const missingQuestions = missingFieldsWithQuestions.map(f => f.question).join('\n- ');
+    //             return { type: 'chat', content: { action: 'collect_data', message: `Для завершения, предоставьте:\n\n- ${missingQuestions}` } };
+    //         }
+    //     }
+
+    //     // БЛОК 2: ПОИСК ШАБЛОНА ДЛЯ НОВОГО ЗАПРОСА
+    //     const intentResult = await this.findTemplate(prompt);
+
+    //     if (intentResult.templateName) {
+    //         const questions = await this.getQuestionsForTemplate(intentResult.templateName);
+    //         await this.usersService.setDocChatState(userId, intentResult.templateName, crypto.randomBytes(16).toString('hex'));
+    //         return { type: 'chat', content: questions };
+    //     }
+
+    //     // Если намерение - не поиск документа, а что-то другое
+    //     return this.handleClarification(intentResult, language);
+    // }
     async processDocumentMessage(prompt: string, user: User): Promise<DocumentProcessingResponse> {
         const userId = user.id;
         const language = this.detectLanguage(prompt);
-
-        // БЛОК 1: ПОЛЬЗОВАТЕЛЬ УЖЕ В ПРОЦЕССЕ ЗАПОЛНЕНИЯ
+    
+        // --- БЛОК 1: ПОЛЬЗОВАТЕЛЬ УЖЕ В ПРОЦЕССЕ ПОШАГОВОГО ЗАПОЛНЕНИЯ ---
         if (user.doc_chat_template) {
-            const extractionResult = await this.extractDataForDocx(prompt, user.doc_chat_template, userId);
-
-            // Если пользователь решил отменить или задать отвлеченный вопрос
+            const allFields = await this.getFieldsForTemplate(user.doc_chat_template);
+            const currentIndex = user.doc_chat_question_index || 0;
+    
+            // Защита от случая, если индекс вышел за пределы
+            if (currentIndex >= allFields.length) {
+                console.error(`[AI Service] Error: question index ${currentIndex} is out of bounds for template ${user.doc_chat_template}`);
+                await this.usersService.resetDocChatState(userId);
+                return this.handleClarification({ intent: 'clarification_needed' }, language);
+            }
+            
+            const currentField = allFields[currentIndex];
+    
+            // Вызываем extractDataForDocx в режиме одиночного ответа
+            const extractionResult = await this.extractDataForDocx(prompt, user.doc_chat_template, userId, currentField.question, currentField.tag);
+    
+            // Обработка намерений (отмена, вопрос не по теме)
             if (extractionResult.intent) {
                 await this.usersService.resetDocChatState(userId);
-                const intentResult = await this.findTemplate(prompt); // Перепроверяем намерение уже с чистым состоянием
+                const intentResult = await this.findTemplate(prompt); // Перепроверяем, чтобы дать правильный ответ
                 return this.handleClarification(intentResult, language);
             }
-
-            // Если это были данные для заполнения
-            if (extractionResult.isComplete) {
-                // --- НАЧАЛО БЛОКА ПРОВЕРКИ ЛИМИТОВ ---
+    
+            // Накапливаем данные
+            const currentData = user.doc_chat_pending_data || {};
+            const newData = { ...currentData, ...(extractionResult.data || {}) };
+            const nextIndex = currentIndex + 1;
+    
+            // Если вопросы еще остались, задаем следующий
+            if (nextIndex < allFields.length) {
+                await this.usersService.updateDocChatState(userId, nextIndex, newData);
+                const nextField = allFields[nextIndex];
+                return { type: 'chat', content: { action: 'collect_data', message: nextField.question } };
+            } 
+            // Если это был последний вопрос, генерируем документ
+            else {
+                const finalData = newData;
+    
+                // --- ПРОВЕРКА ЛИМИТОВ ДЛЯ БАЗОВОГО ТАРИФА ---
                 if (user.tariff === 'Базовый') {
                     const now = new Date();
                     if (user.last_generation_date) {
                         const lastGen = new Date(user.last_generation_date);
-                        // Проверяем, была ли генерация в том же календарном месяце и году
                         if (lastGen.getFullYear() === now.getFullYear() && lastGen.getMonth() === now.getMonth()) {
                             const message = language === 'kz'
                                 ? "Сіз осы айдағы тегін құжат жасау лимитіңізді пайдаланып қойдыңыз. Лимитсіз генерация үшін 'Премиум' тарифіне өтіңіз."
                                 : "Вы уже использовали свой лимит на создание бесплатного документа в этом месяце. Для безлимитной генерации, пожалуйста, перейдите на тариф 'Премиум'.";
-
-                            // Важно: также сбрасываем состояние, чтобы пользователь не застрял
                             await this.usersService.resetDocChatState(userId);
                             return { type: 'chat', content: { action: 'clarification', message } };
                         }
                     }
                 }
-
-                // --- КОНЕЦ БЛОКА ПРОВЕРКИ ЛИМИТОВ ---
-
-                const docxBuffer = this.docxService.generateDocx(user.doc_chat_template, extractionResult.data);
-
-                // --- НАЧАЛО ИЗМЕНЕНИЯ ПУТИ ---
+    
+                const docxBuffer = this.docxService.generateDocx(user.doc_chat_template, finalData);
+                
+                // --- ЛОГИКА СОХРАНЕНИЯ ФАЙЛА НА ДИСК И В БД ---
                 const fileId = uuidv4();
-                // Используем абсолютный путь, который Render понимает для дисков
-                const storageDir = `/var/data/render/generated_documents`;
+                const storageDir = `/var/data/render/generated_documents`; 
                 if (!fs.existsSync(storageDir)) {
                     fs.mkdirSync(storageDir, { recursive: true });
                 }
                 const storagePath = path.join(storageDir, `${fileId}.docx`);
-                // --- КОНЕЦ ИЗМЕНЕНИЯ ПУТИ ---
-
-                // Сохраняем метаданные в БД
                 fs.writeFileSync(storagePath, docxBuffer);
                 const newDoc = this.generatedDocRepo.create({ id: fileId, user: user, originalFileName: user.doc_chat_template, storagePath: storagePath });
                 await this.generatedDocRepo.save(newDoc);
-                // --- КОНЕЦ ЛОГИКИ СОХРАНЕНИЯ ФАЙЛА ---
-
+                
+                // Сбрасываем состояние и обновляем дату для базового тарифа
                 await this.usersService.resetDocChatState(userId);
-
-                // Обновляем дату генерации ТОЛЬКО для базового тарифа после успешного создания
                 if (user.tariff === 'Базовый') {
                     await this.usersService.setLastGenerationDate(user.id, new Date());
                 }
-
-                // --- ИЗМЕНЕНИЕ ОТВЕТА ДЛЯ ИСТОРИИ ЧАТА ---
-                // Формируем специальный JSON для сохранения в историю чата
+    
+                // Формируем контент для истории, который будет сохранен в контроллере
                 const modelResponseContent = JSON.stringify({
                     message: `Документ "${user.doc_chat_template}" успешно сгенерирован.`,
                     fileId: fileId,
-                    fileName: `${user.doc_chat_template}.docx`
+                    fileName: user.doc_chat_template
                 });
-
-                // Этот контент будет сохранен в историю чата в контроллере
-                // ВАЖНО: Мы должны передать его обратно в контроллер.
-                // Для этого добавим его в возвращаемый объект, чтобы контроллер мог его прочитать.
-
-                return {
-                    type: 'file',
-                    content: docxBuffer,
+                
+                return { 
+                    type: 'file', 
+                    content: docxBuffer, 
                     fileName: user.doc_chat_template,
-                    // Добавляем специальное поле для истории чата
-                    historyContent: modelResponseContent
+                    historyContent: modelResponseContent 
                 };
             }
-
-            // Если данные неполные
-            const missingTags = extractionResult.missingFields;
-            if (missingTags && Array.isArray(missingTags) && missingTags.length > 0) {
-                const allFields = await this.getFieldsForTemplate(user.doc_chat_template);
-
-                // Эта строка теперь корректна, так как TypeScript знает, что missingTags - это string[]
-                const missingFieldsWithQuestions = allFields.filter(field => missingTags.includes(field.tag));
-
-                const missingQuestions = missingFieldsWithQuestions.map(f => f.question).join('\n- ');
-                return { type: 'chat', content: { action: 'collect_data', message: `Для завершения, предоставьте:\n\n- ${missingQuestions}` } };
+        }
+    
+        // --- БЛОК 2: НАЧАЛО НОВОГО ДИАЛОГА ---
+        const intentResult = await this.findTemplate(prompt);
+        if (intentResult.templateName) {
+            const allFields = await this.getFieldsForTemplate(intentResult.templateName);
+            if (allFields && allFields.length > 0) {
+                // Запускаем процесс сбора данных, задавая первый вопрос
+                await this.usersService.startDocChat(user.id, intentResult.templateName);
+                return { type: 'chat', content: { action: 'collect_data', message: allFields[0].question } };
             }
         }
-
-        // БЛОК 2: ПОИСК ШАБЛОНА ДЛЯ НОВОГО ЗАПРОСА
-        const intentResult = await this.findTemplate(prompt);
-
-        if (intentResult.templateName) {
-            const questions = await this.getQuestionsForTemplate(intentResult.templateName);
-            await this.usersService.setDocChatState(userId, intentResult.templateName, crypto.randomBytes(16).toString('hex'));
-            return { type: 'chat', content: questions };
-        }
-
-        // Если намерение - не поиск документа, а что-то другое
+    
+        // Если намерение - не поиск документа, а что-то другое (small_talk, query, и т.д.)
         return this.handleClarification(intentResult, language);
     }
 
@@ -472,85 +579,154 @@ export class DocumentAiService implements OnModuleInit {
      * @param templateName - Имя файла шаблона, для которого извлекаются данные.
      * @returns Объект с флагом isComplete, извлеченными данными (data) и списком недостающих полей (missingFields).
      */
-    async extractDataForDocx(userAnswersPrompt: string, templateName: string, userId: number): Promise<{ data: any; isComplete: boolean; missingFields?: string[]; intent?: string }> {
+    // async extractDataForDocx(userAnswersPrompt: string, templateName: string, userId: number): Promise<{ data: any; isComplete: boolean; missingFields?: string[]; intent?: string }> {
+    //     const normalizedTemplateName = templateName.toLowerCase();
+    //     const templateInfo = TEMPLATES_REGISTRY[normalizedTemplateName];
+    //     if (!templateInfo) {
+    //         throw new Error(`Шаблон "${templateName}" не найден.`);
+    //     }
+    //     const requiredTags = templateInfo.tags_in_template;
+    //     // --- НАЧАЛО ИСПРАВЛЕНИЯ: ПОЛУЧАЕМ ИСТОРИЮ ЧАТА ---
+    //     const history = await this.chatHistoryService.getHistory(userId, ChatType.DOCUMENT);
+    //     const historyText = history.map(h => `${h.role}: ${h.parts[0].text}`).join('\n');
+    //     // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+    //     const prompt = `
+    //     Твоя роль - сверхточный робот-аналитик JSON, который умеет работать с контекстом диалога. Твоя работа критически важна.
+
+    //     **ПЛАН ДЕЙСТВИЙ:**
+    //     1.  **АНАЛИЗ НАМЕРЕНИЯ в ПОСЛЕДНЕМ СООБЩЕНИИ ПОЛЬЗОВАТЕЛЯ:**
+    //         -   **ЕСЛИ** последнее сообщение — это команда отмены ("отмена", "не хочу", "керек жок"), верни JSON: \`{"intent": "cancel"}\`.
+    //         -   **ЕСЛИ** последнее сообщение — это желание начать новый документ ("хочу другой документ"), верни JSON: \`{"intent": "new_document"}\`.
+    //         -   **ЕСЛИ** последнее сообщение — это вопрос не по теме или бессмыслица ("а что такое акт?", "сосед затопил", "пофиг"), верни JSON: \`{"intent": "query"}\`.
+    //         -   **ИНАЧЕ**, переходи к ИЗВЛЕЧЕНИЮ ДАННЫХ.
+
+    //     2.  **ИЗВЛЕЧЕНИЕ ДАННЫХ ИЗ ВСЕГО ДИАЛОГА:**
+    //         -   Проанализируй ВЕСЬ предоставленный 'Диалог'. Собери всю информацию, которую пользователь дал в своих сообщениях.
+    //         -   Для КАЖДОГО тега из 'Списка тегов' найди значение в диалоге.
+    //         -   "isComplete" должно быть 'true' ТОЛЬКО если найдены ВСЕ теги. Если не нашел хотя бы ОДИН, "isComplete" ДОЛЖНО быть 'false', а сам тег должен быть в массиве "missingFields".
+
+    //     **--- НОВЫЙ, УСИЛЕННЫЙ ПРИМЕР ДЛЯ СПИСКОВ ---**
+    //     ПРИМЕР 'Текста для анализа': "Құжаттар: Техникалық тапсырма №01-ТТ/2024 — жөндеуге арналған. Жөндеу жобасы №ПЖ-17/2024 — қасбетті сырлау. Смета №СМ-2024/88."
+    //     ПРИМЕР 'Списка тегов': ["docs", "name", "notes"]
+    //     ТВОЙ ПРАВИЛЬНЫЙ РЕЗУЛЬТАТ для этого примера:
+    //     {
+    //         "isComplete": true, // (предположим, что все остальные теги тоже найдены)
+    //         "missingFields": [],
+    //         "data": {
+    //             "docs": [
+    //                 { "name": "Техникалық тапсырма №01-ТТ/2024", "notes": "жөндеуге арналған" },
+    //                 { "name": "Жөндеу жобасы №ПЖ-17/2024", "notes": "қасбетті сырлау" },
+    //                 { "name": "Смета №СМ-2024/88", "notes": "" }
+    //             ]
+    //         }
+    //     }
+    //     **--- КОНЕЦ ПРИМЕРА ---**
+        
+    //     Теперь выполни задачу для реальных данных.
+        
+    //     **Список требуемых тегов:** 
+    //     ${JSON.stringify(requiredTags)}
+        
+    //     **Диалог для анализа:**
+    //     ---
+    //     ${historyText}
+    //     Пользователь: ${userAnswersPrompt}
+    //     ---
+        
+    //     Верни ответ СТРОГО в формате JSON.
+    //     `;
+
+
+    //     try {
+    //         const rawResponse = await this.generateWithRetry(prompt);
+    //         const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+    //         if (!jsonMatch) {
+    //             console.error("AI не вернул валидный JSON. Ответ:", rawResponse);
+    //             throw new Error("Не удалось извлечь данные.");
+    //         }
+
+    //         const parsedResponse = JSON.parse(jsonMatch[0]);
+
+    //         if (parsedResponse.isComplete === false && !parsedResponse.intent && (!parsedResponse.missingFields || parsedResponse.missingFields.length === 0)) {
+    //             parsedResponse.missingFields = requiredTags;
+    //         }
+
+    //         return parsedResponse;
+
+    //     } catch (error) {
+    //         console.error('Критическая ошибка при извлечении данных:', error);
+    //         return { isComplete: false, missingFields: requiredTags, data: {} };
+    //     }
+    // }
+    async extractDataForDocx(
+        userAnswersPrompt: string, 
+        templateName: string, 
+        userId: number,
+        // --- НАЧАЛО ИЗМЕНЕНИЙ: Необязательные параметры для пошагового режима ---
+        currentQuestion?: string,
+        currentTag?: string,
+        // --- КОНЕЦ ИЗМЕНЕНИЙ ---
+    ): Promise<{ data: any; isComplete: boolean; missingFields?: string[]; intent?: string }> {
         const normalizedTemplateName = templateName.toLowerCase();
         const templateInfo = TEMPLATES_REGISTRY[normalizedTemplateName];
         if (!templateInfo) {
             throw new Error(`Шаблон "${templateName}" не найден.`);
         }
-        const requiredTags = templateInfo.tags_in_template;
-        // --- НАЧАЛО ИСПРАВЛЕНИЯ: ПОЛУЧАЕМ ИСТОРИЮ ЧАТА ---
+        
+        const requiredTags = currentTag ? [currentTag] : templateInfo.tags_in_template;
         const history = await this.chatHistoryService.getHistory(userId, ChatType.DOCUMENT);
-        const historyText = history.map(h => `${h.role}: ${h.parts[0].text}`).join('\n');
-        // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+        const historyText = history.map(h => `${h.role === 'user' ? 'Пользователь' : 'Ассистент'}: ${h.parts[0].text}`).join('\n');
+    
+        // --- НАЧАЛО УЛУЧШЕННОГО ПРОМПТА ---
         const prompt = `
-        Твоя роль - сверхточный робот-аналитик JSON, который умеет работать с контекстом диалога. Твоя работа критически важна.
-
-        **ПЛАН ДЕЙСТВИЙ:**
-        1.  **АНАЛИЗ НАМЕРЕНИЯ в ПОСЛЕДНЕМ СООБЩЕНИИ ПОЛЬЗОВАТЕЛЯ:**
-            -   **ЕСЛИ** последнее сообщение — это команда отмены ("отмена", "не хочу", "керек жок"), верни JSON: \`{"intent": "cancel"}\`.
-            -   **ЕСЛИ** последнее сообщение — это желание начать новый документ ("хочу другой документ"), верни JSON: \`{"intent": "new_document"}\`.
-            -   **ЕСЛИ** последнее сообщение — это вопрос не по теме или бессмыслица ("а что такое акт?", "сосед затопил", "пофиг"), верни JSON: \`{"intent": "query"}\`.
-            -   **ИНАЧЕ**, переходи к ИЗВЛЕЧЕНИЮ ДАННЫХ.
-
-        2.  **ИЗВЛЕЧЕНИЕ ДАННЫХ ИЗ ВСЕГО ДИАЛОГА:**
-            -   Проанализируй ВЕСЬ предоставленный 'Диалог'. Собери всю информацию, которую пользователь дал в своих сообщениях.
-            -   Для КАЖДОГО тега из 'Списка тегов' найди значение в диалоге.
-            -   "isComplete" должно быть 'true' ТОЛЬКО если найдены ВСЕ теги. Если не нашел хотя бы ОДИН, "isComplete" ДОЛЖНО быть 'false', а сам тег должен быть в массиве "missingFields".
-
-        **--- НОВЫЙ, УСИЛЕННЫЙ ПРИМЕР ДЛЯ СПИСКОВ ---**
-        ПРИМЕР 'Текста для анализа': "Құжаттар: Техникалық тапсырма №01-ТТ/2024 — жөндеуге арналған. Жөндеу жобасы №ПЖ-17/2024 — қасбетті сырлау. Смета №СМ-2024/88."
-        ПРИМЕР 'Списка тегов': ["docs", "name", "notes"]
-        ТВОЙ ПРАВИЛЬНЫЙ РЕЗУЛЬТАТ для этого примера:
-        {
-            "isComplete": true, // (предположим, что все остальные теги тоже найдены)
-            "missingFields": [],
-            "data": {
-                "docs": [
-                    { "name": "Техникалық тапсырма №01-ТТ/2024", "notes": "жөндеуге арналған" },
-                    { "name": "Жөндеу жобасы №ПЖ-17/2024", "notes": "қасбетті сырлау" },
-                    { "name": "Смета №СМ-2024/88", "notes": "" }
-                ]
-            }
-        }
-        **--- КОНЕЦ ПРИМЕРА ---**
-        
-        Теперь выполни задачу для реальных данных.
-        
-        **Список требуемых тегов:** 
-        ${JSON.stringify(requiredTags)}
-        
-        **Диалог для анализа:**
-        ---
-        ${historyText}
-        Пользователь: ${userAnswersPrompt}
-        ---
-        
-        Верни ответ СТРОГО в формате JSON.
-        `;
-
-
+            Твоя роль - сверхточный робот-аналитик JSON. Твоя работа критически важна.
+    
+            **ПЛАН ДЕЙСТВИЙ:**
+            1.  **АНАЛИЗ НАМЕРЕНИЯ в ПОСЛЕДНЕМ СООБЩЕНИИ ПОЛЬЗОВАТЕЛЯ:**
+                -   Если ПОСЛЕДНЕЕ сообщение — это команда отмены ("отмена", "не хочу"), ВЕРНИ ТОЛЬКО: \`{"intent": "cancel"}\`.
+                -   Если ПОСЛЕДНЕЕ сообщение — это вопрос не по теме, ВЕРНИ ТОЛЬКО: \`{"intent": "query"}\`.
+                -   ИНАЧЕ, переходи к ИЗВЛЕЧЕНИЮ ДАННЫХ.
+    
+            2.  **ИЗВЛЕЧЕНИЕ ДАННЫХ:**
+                -   **ЕСЛИ тебе дан "Конкретный вопрос"**, сфокусируйся на извлечении ответа **только на него** из "Последнего сообщения".
+                -   **ЕСЛИ "Конкретного вопроса" нет**, проанализируй ВЕСЬ "Диалог" и собери информацию для ВСЕХ тегов из "Списка тегов".
+                -   "isComplete" должно быть 'true' ТОЛЬКО если найдены ВСЕ требуемые теги.
+    
+            ${currentQuestion ? `**Конкретный вопрос, на который нужно найти ответ:** "${currentQuestion}"` : ''}
+            
+            **Список требуемых тегов:** 
+            ${JSON.stringify(requiredTags)}
+            
+            **Диалог для анализа:**
+            ---
+            ${historyText}
+            **Последнее сообщение пользователя (основной источник для ответа на конкретный вопрос):** ${userAnswersPrompt}
+            ---
+            
+            Верни ответ СТРОГО в формате JSON.
+            `;
+        // --- КОНЕЦ УЛУЧШЕННОГО ПРОМПТА ---
+    
         try {
             const rawResponse = await this.generateWithRetry(prompt);
             const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) {
-                console.error("AI не вернул валидный JSON. Ответ:", rawResponse);
-                throw new Error("Не удалось извлечь данные.");
-            }
-
+            if (!jsonMatch) throw new Error("AI не вернул валидный JSON.");
+            
             const parsedResponse = JSON.parse(jsonMatch[0]);
-
+    
             if (parsedResponse.isComplete === false && !parsedResponse.intent && (!parsedResponse.missingFields || parsedResponse.missingFields.length === 0)) {
                 parsedResponse.missingFields = requiredTags;
             }
-
+            
             return parsedResponse;
-
+    
         } catch (error) {
             console.error('Критическая ошибка при извлечении данных:', error);
             return { isComplete: false, missingFields: requiredTags, data: {} };
         }
     }
+
+
     async getGeneratedDocument(fileId: string, userId: number): Promise<GeneratedDocument | null> {
         return this.generatedDocRepo.findOne({
             where: {

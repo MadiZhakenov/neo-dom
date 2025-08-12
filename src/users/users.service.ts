@@ -254,22 +254,38 @@ export class UsersService {
   }
 
   /**
-   * Устанавливает состояние чата документов для пользователя.
-   */
-  async setDocChatState(userId: number, templateName: string, requestId: string): Promise<void> {
-    await this.usersRepository.update(userId, {
+ * Начинает новый диалог для генерации документа.
+ * Устанавливает имя шаблона, сбрасывает счетчик вопросов и старые данные.
+ */
+async startDocChat(userId: number, templateName: string): Promise<void> {
+  await this.usersRepository.update(userId, {
       doc_chat_template: templateName,
-      doc_chat_request_id: requestId,
-    });
-  }
+      doc_chat_question_index: 0, // Начинаем с первого вопроса
+      doc_chat_pending_data: {},  // Очищаем старые данные
+  });
+}
 
-  /**
-   * Сбрасывает состояние чата документов для пользователя.
-   */
-  async resetDocChatState(userId: number): Promise<void> {
-    await this.usersRepository.update(userId, {
+/**
+* Обновляет состояние диалога: переходит к следующему вопросу и сохраняет накопленные данные.
+*/
+async updateDocChatState(userId: number, nextQuestionIndex: number, pendingData: Record<string, any>): Promise<void> {
+  await this.usersRepository.update(userId, {
+      doc_chat_question_index: nextQuestionIndex,
+      doc_chat_pending_data: pendingData,
+  });
+}
+
+/**
+* Полностью сбрасывает состояние диалога генерации документа.
+*/
+async resetDocChatState(userId: number): Promise<void> {
+  await this.usersRepository.update(userId, {
       doc_chat_template: null,
-      doc_chat_request_id: null,
-    });
-  }
+      // --- ИСПРАВЛЕНИЕ ---
+      doc_chat_question_index: 0, // Сбрасываем на 0, а не на null
+      // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+      doc_chat_pending_data: {},
+  });
+}
+
 }

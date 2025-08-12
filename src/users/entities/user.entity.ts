@@ -28,13 +28,13 @@ export class User {
 
   @Column({ default: 'resident' })
   role: 'resident' | 'admin' | 'accountant';
-  
+
   @Column({ type: 'timestamp', nullable: true, default: null })
   subscription_expires_at: Date | null;
 
   @Column({ type: 'varchar', nullable: true, default: null })
   password_reset_token: string | null;
- 
+
   @Column({ type: 'timestamp', nullable: true, default: null })
   password_reset_expires: Date | null;
 
@@ -44,12 +44,18 @@ export class User {
   @Column({ type: 'int', default: 0 })
   generation_count: number;
 
-   // --- ВОЗВРАЩАЕМ ЭТИ ПОЛЯ, НО ТОЛЬКО ДЛЯ ДОКУМЕНТОВ ---
-   @Column({ type: 'varchar', nullable: true, default: null })
-   doc_chat_template: string | null; // Новое имя
- 
-   @Column({ type: 'varchar', nullable: true, default: null })
-   doc_chat_request_id: string | null; // Новое имя
+  // --- ВОЗВРАЩАЕМ ЭТИ ПОЛЯ, НО ТОЛЬКО ДЛЯ ДОКУМЕНТОВ ---
+  @Column({ type: 'varchar', nullable: true, default: null })
+  doc_chat_template: string | null; // Новое имя
+
+  @Column({ type: 'varchar', nullable: true, default: null })
+  doc_chat_request_id: string | null; // Новое имя
+  
+  @Column({ type: 'integer', nullable: true, default: 0 })
+  doc_chat_question_index: number; // Номер текущего вопроса (начиная с 0)
+
+  @Column({ type: 'jsonb', nullable: true, default: {} })
+  doc_chat_pending_data: Record<string, any>;
 
   // Добавляем связь с сообщениями чата
   @OneToMany(() => ChatMessage, (message) => message.user)
