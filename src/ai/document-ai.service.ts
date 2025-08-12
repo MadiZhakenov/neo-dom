@@ -198,7 +198,7 @@ export class DocumentAiService implements OnModuleInit {
                 // --- НАЧАЛО ИЗМЕНЕНИЯ ПУТИ ---
                 const fileId = uuidv4();
                 // Используем абсолютный путь, который Render понимает для дисков
-                const storageDir = `/var/data/generated_documents`;
+                const storageDir = `/var/data/render/generated_documents`;
                 if (!fs.existsSync(storageDir)) {
                     fs.mkdirSync(storageDir, { recursive: true });
                 }

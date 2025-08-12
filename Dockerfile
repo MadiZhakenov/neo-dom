@@ -7,7 +7,7 @@ WORKDIR /neo-osi-backend
 # --- НАЧАЛО ИЗМЕНЕНИЯ ---
 # Создаем директорию для монтирования диска Render.
 # Это гарантирует, что папка будет существовать до того, как Render попытается подключить диск.
-RUN mkdir -p /var/data/generated_documents
+RUN mkdir -p /var/data/render/generated_documents
 # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
 # Устанавливаем системные зависимости
