@@ -172,116 +172,6 @@ export class DocumentAiService implements OnModuleInit {
         return 'ru';
     }
 
-    // Замените старый метод processDocumentMessage на этот
-    // async processDocumentMessage(prompt: string, user: User): Promise<DocumentProcessingResponse> {
-    //     const userId = user.id;
-    //     const language = this.detectLanguage(prompt);
-
-    //     // БЛОК 1: ПОЛЬЗОВАТЕЛЬ УЖЕ В ПРОЦЕССЕ ЗАПОЛНЕНИЯ
-    //     if (user.doc_chat_template) {
-    //         const extractionResult = await this.extractDataForDocx(prompt, user.doc_chat_template, userId);
-
-    //         // Если пользователь решил отменить или задать отвлеченный вопрос
-    //         if (extractionResult.intent) {
-    //             await this.usersService.resetDocChatState(userId);
-    //             const intentResult = await this.findTemplate(prompt); // Перепроверяем намерение уже с чистым состоянием
-    //             return this.handleClarification(intentResult, language);
-    //         }
-
-    //         // Если это были данные для заполнения
-    //         if (extractionResult.isComplete) {
-    //             // --- НАЧАЛО БЛОКА ПРОВЕРКИ ЛИМИТОВ ---
-    //             if (user.tariff === 'Базовый') {
-    //                 const now = new Date();
-    //                 if (user.last_generation_date) {
-    //                     const lastGen = new Date(user.last_generation_date);
-    //                     // Проверяем, была ли генерация в том же календарном месяце и году
-    //                     if (lastGen.getFullYear() === now.getFullYear() && lastGen.getMonth() === now.getMonth()) {
-    //                         const message = language === 'kz'
-    //                             ? "Сіз осы айдағы тегін құжат жасау лимитіңізді пайдаланып қойдыңыз. Лимитсіз генерация үшін 'Премиум' тарифіне өтіңіз."
-    //                             : "Вы уже использовали свой лимит на создание бесплатного документа в этом месяце. Для безлимитной генерации, пожалуйста, перейдите на тариф 'Премиум'.";
-
-    //                         // Важно: также сбрасываем состояние, чтобы пользователь не застрял
-    //                         await this.usersService.resetDocChatState(userId);
-    //                         return { type: 'chat', content: { action: 'clarification', message } };
-    //                     }
-    //                 }
-    //             }
-
-    //             // --- КОНЕЦ БЛОКА ПРОВЕРКИ ЛИМИТОВ ---
-
-    //             const docxBuffer = this.docxService.generateDocx(user.doc_chat_template, extractionResult.data);
-
-    //             // --- НАЧАЛО ИЗМЕНЕНИЯ ПУТИ ---
-    //             const fileId = uuidv4();
-    //             // Используем абсолютный путь, который Render понимает для дисков
-    //             const storageDir = `/var/data/render/generated_documents`;
-    //             if (!fs.existsSync(storageDir)) {
-    //                 fs.mkdirSync(storageDir, { recursive: true });
-    //             }
-    //             const storagePath = path.join(storageDir, `${fileId}.docx`);
-    //             // --- КОНЕЦ ИЗМЕНЕНИЯ ПУТИ ---
-
-    //             // Сохраняем метаданные в БД
-    //             fs.writeFileSync(storagePath, docxBuffer);
-    //             const newDoc = this.generatedDocRepo.create({ id: fileId, user: user, originalFileName: user.doc_chat_template, storagePath: storagePath });
-    //             await this.generatedDocRepo.save(newDoc);
-    //             // --- КОНЕЦ ЛОГИКИ СОХРАНЕНИЯ ФАЙЛА ---
-
-    //             await this.usersService.resetDocChatState(userId);
-
-    //             // Обновляем дату генерации ТОЛЬКО для базового тарифа после успешного создания
-    //             if (user.tariff === 'Базовый') {
-    //                 await this.usersService.setLastGenerationDate(user.id, new Date());
-    //             }
-
-    //             // --- ИЗМЕНЕНИЕ ОТВЕТА ДЛЯ ИСТОРИИ ЧАТА ---
-    //             // Формируем специальный JSON для сохранения в историю чата
-    //             const modelResponseContent = JSON.stringify({
-    //                 message: `Документ "${user.doc_chat_template}" успешно сгенерирован.`,
-    //                 fileId: fileId,
-    //                 fileName: `${user.doc_chat_template}.docx`
-    //             });
-
-    //             // Этот контент будет сохранен в историю чата в контроллере
-    //             // ВАЖНО: Мы должны передать его обратно в контроллер.
-    //             // Для этого добавим его в возвращаемый объект, чтобы контроллер мог его прочитать.
-
-    //             return {
-    //                 type: 'file',
-    //                 content: docxBuffer,
-    //                 fileName: user.doc_chat_template,
-    //                 // Добавляем специальное поле для истории чата
-    //                 historyContent: modelResponseContent
-    //             };
-    //         }
-
-    //         // Если данные неполные
-    //         const missingTags = extractionResult.missingFields;
-    //         if (missingTags && Array.isArray(missingTags) && missingTags.length > 0) {
-    //             const allFields = await this.getFieldsForTemplate(user.doc_chat_template);
-
-    //             // Эта строка теперь корректна, так как TypeScript знает, что missingTags - это string[]
-    //             const missingFieldsWithQuestions = allFields.filter(field => missingTags.includes(field.tag));
-
-    //             const missingQuestions = missingFieldsWithQuestions.map(f => f.question).join('\n- ');
-    //             return { type: 'chat', content: { action: 'collect_data', message: `Для завершения, предоставьте:\n\n- ${missingQuestions}` } };
-    //         }
-    //     }
-
-    //     // БЛОК 2: ПОИСК ШАБЛОНА ДЛЯ НОВОГО ЗАПРОСА
-    //     const intentResult = await this.findTemplate(prompt);
-
-    //     if (intentResult.templateName) {
-    //         const questions = await this.getQuestionsForTemplate(intentResult.templateName);
-    //         await this.usersService.setDocChatState(userId, intentResult.templateName, crypto.randomBytes(16).toString('hex'));
-    //         return { type: 'chat', content: questions };
-    //     }
-
-    //     // Если намерение - не поиск документа, а что-то другое
-    //     return this.handleClarification(intentResult, language);
-    // }
-
     async processDocumentMessage(prompt: string, user: User): Promise<DocumentProcessingResponse> {
         const userId = user.id;
         const language = this.detectLanguage(prompt);
@@ -412,7 +302,7 @@ export class DocumentAiService implements OnModuleInit {
 
     private async findTemplate(prompt: string): Promise<{ templateName?: string; intent?: string }> {
         const language = this.detectLanguage(prompt);
-        
+
         const intentDetectionPrompt = `
           Твоя задача - точно классифицировать "Запрос" пользователя. Действуй СТРОГО по плану.
     
@@ -431,7 +321,7 @@ export class DocumentAiService implements OnModuleInit {
           Запрос: "${prompt}"
           Верни ТОЛЬКО JSON.
         `;
-    
+
         const rawResponse = await this.generateWithRetry(intentDetectionPrompt);
         const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
         if (!jsonMatch) { return { intent: "clarification_needed" }; }
@@ -490,20 +380,34 @@ export class DocumentAiService implements OnModuleInit {
         const templateInfo = TEMPLATES_REGISTRY[normalizedTemplateName];
         if (!templateInfo) throw new Error(`Шаблон "${templateName}" не настроен.`);
 
+        // --- НАЧАЛО ФИНАЛЬНОГО УНИВЕРСАЛЬНОГО ПРОМПТА ---
         const prompt = `
-            Твоя главная задача: Сгенерировать список вопросов для пользователя.
-            **КРИТИЧЕСКОЕ ПРАВИЛО:** Язык для ВСЕХ генерируемых вопросов **ДОЛЖЕН БЫТЬ СТРОГО "${templateInfo.language}"**.
-            
-            **ПРАВИЛО ГРУППИРОВКИ:** Если в 'Списке тегов' ты видишь теги, начинающиеся с "doc_" (например, "doc_name"), ты ОБЯЗАН сгруппировать их все в ОДИН ОБЩИЙ вопрос. Этот вопрос должен быть привязан к тегу "documents" и просить пользователя перечислить все документы и их атрибуты. НЕ ДЕЛИ этот вопрос на части для каждого "doc_" тега.
-    
-            Твоя цель - помочь пользователю заполнить шаблон. Проанализируй PDF и для каждого тега из 'Списка тегов' (с учетом правила группировки) сформулируй вежливый и понятный вопрос.
-            
-            Верни ответ **СТРОГО и ТОЛЬКО в виде JSON-массива** объектов, где каждый объект имеет два поля: "tag" и "question". Без вводных слов.
-    
-            Список тегов, которые ты должен учесть:
-            ${templateInfo.tags_in_template.map(tag => `- ${tag}`).join('\n')}
-        `;
+    Твоя главная задача: Сгенерировать логичный и последовательный список вопросов для пользователя, проанализировав PDF-документ и список тегов.
 
+    **КРИТИЧЕСКОЕ ПРАВИЛО ЯЗЫКА:** Все вопросы и их формулировки ДОЛЖНЫ БЫТЬ СТРОГО на языке "${templateInfo.language}".
+    
+    **ПРАВИЛА ГРУППИРОВКИ (ОЧЕНЬ ВАЖНО):**
+    Твоя цель — создать минимально возможное количество логичных вопросов. Для этого ты ОБЯЗАН группировать связанные теги в один вопрос.
+    1.  **ДАННЫЕ О ЛЮДЯХ:** Если видишь теги, описывающие одного человека (например, 'sender_fio', 'sender_position', 'chairman_details'), сгруппируй их в ОДИН вопрос. Пример вопроса: "Укажите ФИО, должность и полномочия Председателя".
+    2.  **ДАННЫЕ О ДАТАХ:** Если видишь теги, содержащие 'day', 'month', 'year' (например, 'acceptor_day', 'approval_year'), сгруппируй их в ОДИН вопрос о полной дате. Пример вопроса: "Укажите дату утверждения".
+    3.  **ДАННЫЕ ДЛЯ ТАБЛИЦ/СПИСКОВ:** Если видишь родительский тег цикла (например, 'documents', 'work_items', 'commission_signatures') и дочерние теги (например, 'doc_name', 'work_name'), сгруппируй их все в ОДИН ОБЩИЙ И ПОДРОБНЫЙ вопрос. Этот вопрос должен быть привязан к родительскому тегу цикла (например, 'documents') и просить пользователя перечислить все элементы списка со всеми их атрибутами. **НЕ ДЕЛИ ЭТОТ ВОПРОС НА ЧАСТИ!**
+
+    **АЛГОРИТМ ДЕЙСТВИЙ:**
+    1. Изучи PDF-документ, чтобы понять его структуру и контекст.
+    2. Проанализируй "Список тегов".
+    3. Примени "Правила группировки", чтобы объединить связанные теги.
+    4. Для каждого тега или логической группы тегов сформулируй вежливый и понятный вопрос, который поможет пользователю заполнить соответствующую часть документа.
+    
+    Верни ответ **СТРОГО и ТОЛЬКО в виде JSON-массива** объектов: {"tag": "...", "question": "..."}. Без Markdown.
+
+    ---
+    **ИСХОДНЫЕ ДАННЫЕ:**
+
+    **Список тегов, которые ты должен покрыть:**
+    ${templateInfo.tags_in_template.join(', ')}
+    ---
+`;
+        // --- КОНЕЦ ФИНАЛЬНОГО УНИВЕРСАЛЬНОГО ПРОМПТА ---
         const pdfPreviewPath = path.join(process.cwd(), 'knowledge_base', 'templates', 'pdf_previews', normalizedTemplateName.replace('.docx', '.pdf'));
         if (!fs.existsSync(pdfPreviewPath)) throw new Error(`PDF-превью для шаблона "${normalizedTemplateName}" не найдено.`);
 
@@ -519,6 +423,7 @@ export class DocumentAiService implements OnModuleInit {
             } catch (error) {
                 console.error(`[AI Service] Попытка ${attempt} не удалась при анализе шаблона ${templateName}. Ошибка:`, error.message);
                 if (attempt === 3) throw new Error('Не удалось сгенерировать вопросы для документа.');
+                await delay(500);
             }
         }
         throw new Error('Не удалось сгенерировать вопросы после всех попыток.');
@@ -566,30 +471,27 @@ export class DocumentAiService implements OnModuleInit {
         if (!templateInfo) {
             throw new Error(`Шаблон "${templateName}" не найден.`);
         }
-
+    
         const requiredTags = currentTag ? [currentTag] : templateInfo.tags_in_template;
         const history = await this.chatHistoryService.getHistory(userId, ChatType.DOCUMENT);
         const historyText = history.map(h => `${h.role === 'user' ? 'Пользователь' : 'Ассистент'}: ${h.parts[0].text}`).join('\n');
-        const language = this.detectLanguage(userAnswersPrompt);
-
-        const validationErrorResponse = language === 'kz'
-            ? "Кешіріңіз, сіздің жауабыңыз сұраққа сәйкес келмейтін сияқты. Қайталап көріңізші."
-            : "Извините, ваш ответ не похож на релевантную информацию. Пожалуйста, попробуйте еще раз.";
-
+        
+        // --- НАЧАЛО ФИНАЛЬНОГО УЛУЧШЕННОГО ПРОМПТА ---
         const prompt = `
-            Твоя роль - сверхточный робот-аналитик и валидатор JSON. Твоя работа критически важна.
+            Твоя роль - сверхточный, гибкий и многоязычный робот-аналитик JSON.
     
             **ПЛАН ДЕЙСТВИЙ:**
             1.  **АНАЛИЗ НАМЕРЕНИЯ в ПОСЛЕДНЕМ СООБЩЕНИИ:**
-                -   Если ПОСЛЕДНЕЕ сообщение — это отмена ("отмена", "не хочу"), ВЕРНИ ТОЛЬКО: \`{"intent": "cancel"}\`.
+                -   Если ПОСЛЕДНЕЕ сообщение — это отмена ("отмена", "не хочу", "керек жок"), ВЕРНИ ТОЛЬКО: \`{"intent": "cancel"}\`.
                 -   Если ПОСЛЕДНЕЕ сообщение — это вопрос не по теме, ВЕРНИ ТОЛЬКО: \`{"intent": "query"}\`.
                 -   ИНАЧЕ, переходи к шагу 2.
     
             2.  **ВАЛИДАЦИЯ И ИЗВЛЕЧЕНИЕ ДАННЫХ:**
                 -   **ЕСЛИ тебе дан "Конкретный вопрос"**:
-                    1.  Проанализируй "Последнее сообщение пользователя". Является ли оно релевантным ответом на вопрос?
-                    2.  **ЕСЛИ ДА**, извлеки данные ТОЛЬКО для тега "${currentTag}". Верни JSON вида \`{"data": {"${currentTag}": "извлеченное значение"}}\`. Используй "Усиленный пример для списков", если тег - 'documents'.
-                    3.  **ЕСЛИ НЕТ** (ответ нерелевантный, бред), ВЕРНИ ТОЛЬКО JSON: \`{"error": "${validationErrorResponse}"}\`.
+                    1.  **ОПРЕДЕЛИ ЯЗЫК** "Последнего сообщения пользователя" (русский или казахский).
+                    2.  Проанализируй "Последнее сообщение". Является ли оно **хотя бы ЧАСТИЧНО** релевантным ответом на "Конкретный вопрос"? (Например, если спросили "ФИО, должность, полномочия", а пользователь ответил только "Сидоров Алексей, директор" - это ЧАСТИЧНО релевантный ответ).
+                    3.  **ЕСЛИ ДА (ответ релевантен или частично релевантен)**, извлеки ту информацию, которую смог найти. Верни JSON вида \`{"data": {"${currentTag}": "извлеченное значение"}}\`. Используй "Усиленный пример для списков", если тег - 'documents'.
+                    4.  **ЕСЛИ НЕТ (ответ - полный бред или не по теме)**, верни JSON с сообщением об ошибке **НА ЯЗЫКЕ, КОТОРЫЙ ТЫ ОПРЕДЕЛИЛ В ПУНКТЕ 1**. Например: \`{"error": "Извините, ваш ответ нерелевантен. Попробуйте еще раз."}\` или \`{"error": "Кешіріңіз, жауабыңыз сұраққа сәйкес келмейді."}\`.
                 -   **ЕСЛИ "Конкретного вопроса" нет**:
                     1.  Проанализируй ВЕСЬ "Диалог для анализа".
                     2.  Собери информацию для ВСЕХ тегов из "Списка тегов".
@@ -620,9 +522,10 @@ export class DocumentAiService implements OnModuleInit {
             **Последнее сообщение пользователя:** ${userAnswersPrompt}
             ---
             
-            Верни ответ СТРОГО в формате JSON.
+            Верни ответ СТРОГО в формате JSON. БЕЗ MARKDOWN.
             `;
-
+        // --- КОНЕЦ ФИНАЛЬНОГО УЛУЧШЕННОГО ПРОМПТА ---
+    
         try {
             const rawResponse = await this.generateWithRetry(prompt);
             const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
@@ -630,15 +533,14 @@ export class DocumentAiService implements OnModuleInit {
                 console.error("AI не вернул валидный JSON. Ответ:", rawResponse);
                 return { error: "Внутренняя ошибка обработки ответа." };
             }
-
+    
             return JSON.parse(jsonMatch[0]);
-
+    
         } catch (error) {
             console.error('Критическая ошибка при извлечении данных:', error);
             return { error: "Критическая ошибка при обработке вашего запроса." };
         }
     }
-
     async getGeneratedDocument(fileId: string, userId: number): Promise<GeneratedDocument | null> {
         return this.generatedDocRepo.findOne({
             where: {

@@ -344,9 +344,12 @@ export const TEMPLATES_REGISTRY = {
             'index',
             'name',
             'notes',
-            'year',
-            'day',
-            'month'
+            'receiver_year',
+            'receiver_day',
+            'receiver_month',
+            'sender_year',
+            'sender_day',
+            'sender_month'
         ],
         language: 'kz'
     },
