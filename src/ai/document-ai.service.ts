@@ -115,7 +115,7 @@ export class DocumentAiService implements OnModuleInit {
 
     private async generateWithRetry(prompt: any, retries = 3): Promise<string> {
         let lastError: any;
-    
+
         // --- Попытка 1: Основная, самая мощная модель ---
         try {
             console.log(`[AI Service] Обращение к основной модели (gemini-1.5-pro)...`);
@@ -137,7 +137,7 @@ export class DocumentAiService implements OnModuleInit {
             console.error(`[AI Service] Основная модель не ответила после всех попыток. Ошибка:`, error.message);
             lastError = error;
         }
-    
+
         // --- Попытка 2: Резервная, более быстрая модель ---
         try {
             console.warn(`[AI Service] Переключаюсь на резервную модель (gemini-1.5-flash)...`);
@@ -159,7 +159,7 @@ export class DocumentAiService implements OnModuleInit {
             console.error(`[AI Service] Резервная модель также не ответила. Ошибка:`, error.message);
             lastError = error;
         }
-    
+
         // Если ни одна из моделей не ответила
         throw lastError || new Error('Не удалось получить ответ от AI после всех попыток со всеми моделями.');
     }
@@ -412,17 +412,18 @@ export class DocumentAiService implements OnModuleInit {
 
     private async findTemplate(prompt: string): Promise<{ templateName?: string; intent?: string }> {
         const language = this.detectLanguage(prompt);
-
+        
         const intentDetectionPrompt = `
-          Твоя задача - классифицировать "Запрос" пользователя на языке "${language}". Действуй СТРОГО по плану.
+          Твоя задача - точно классифицировать "Запрос" пользователя. Действуй СТРОГО по плану.
     
-          ПЛАН ДЕЙСТВИЙ:
-          1.  **ПРОВЕРКА НА ОБЩИЙ ВОПРОС (QUERY):** Если "Запрос" - это жалоба, вопрос не по теме, утверждение или бессмысленный набор слов (например, "сосед затопил", "кто несет ответственность", "пофиг"), НЕМЕДЛЕННО верни JSON: {"intent": "query"}
-          2.  **ПРОВЕРКА НА ПРИВЕТСТВИЕ (SMALL TALK):** Если "Запрос" - это только приветствие ("привет", "салем") или вопрос о тебе ("кто ты?"), верни JSON: {"intent": "small_talk"}
-          3.  **ПРОВЕРКА НА ОТМЕНУ (CANCEL):** Если "Запрос" содержит явную отмену ("отмена", "не хочу", "керек жок"), верни JSON: {"intent": "cancel"}
-          4.  **ПОИСК ШАБЛОНА:** Если ничего из вышеперечисленного не подошло, проанализируй "Запрос" и "Список шаблонов".
-              -   Если ты находишь в запросе ОДИН подходящий шаблон -> верни JSON с **ИМЕНЕМ ФАЙЛА**: {"templateName": "имя_файла_из_списка.docx"}
-              -   Иначе (если не нашел или нашел несколько) -> верни JSON: {"intent": "clarification_needed"}
+          **ПЛАН ДЕЙСТВИЙ:**
+          1.  **ПРОВЕРКА НА ПРИВЕТСТВИЕ:** Если "Запрос" - это только приветствие ("Привет", "Салем"), верни JSON: {"intent": "small_talk"}
+          2.  **ПРОВЕРКА НА ОТМЕНУ:** Если "Запрос" содержит явную отмену ("отмена", "не хочу", "керек жок"), верни JSON: {"intent": "cancel"}
+          3.  **ПРОВЕРКА НА ОБЩИЙ ВОПРОС:** Если "Запрос" - это жалоба, вопрос не по теме ИЛИ утверждение, НЕ СВЯЗАННОЕ с документами (например, "сосед затопил", "погода хорошая", "кто ты?"), верни JSON: {"intent": "query"}
+          4.  **ПОИСК ШАБЛОНА ИЛИ НАМЕРЕНИЯ РАБОТАТЬ С ДОКУМЕНТАМИ:**
+              -   Если в запросе **однозначно указан ОДИН шаблон** из списка -> верни JSON с **ИМЕНЕМ ФАЙЛА**: {"templateName": "имя_файла_из_списка.docx"}
+              -   Если запрос выражает **общее желание создать документ**, но не указывает какой именно (например, "хочу новый документ", "давай заполнять", "какие есть документы?"), верни JSON: {"intent": "clarification_needed"}
+              -   Во всех остальных случаях (если не нашел или нашел несколько) -> верни JSON: {"intent": "clarification_needed"}
     
           **Список шаблонов (формат: "человеческое имя" (имя файла)):**
           ${this._templateNames.map(t => `- "${t.humanName}" (${t.fileName})`).join('\n')}
@@ -430,7 +431,7 @@ export class DocumentAiService implements OnModuleInit {
           Запрос: "${prompt}"
           Верни ТОЛЬКО JSON.
         `;
-
+    
         const rawResponse = await this.generateWithRetry(intentDetectionPrompt);
         const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
         if (!jsonMatch) { return { intent: "clarification_needed" }; }
@@ -553,92 +554,6 @@ export class DocumentAiService implements OnModuleInit {
         return this.generateWithRetry(prompt);
     }
 
-
-    /**
-     * Извлекает структурированные данные из ответа пользователя, используя жесткий промпт.
-     * @param userAnswersPrompt - Текст ответа пользователя, содержащий данные.
-     * @param templateName - Имя файла шаблона, для которого извлекаются данные.
-     * @returns Объект с флагом isComplete, извлеченными данными (data) и списком недостающих полей (missingFields).
-     */
-    // async extractDataForDocx(userAnswersPrompt: string, templateName: string, userId: number): Promise<{ data: any; isComplete: boolean; missingFields?: string[]; intent?: string }> {
-    //     const normalizedTemplateName = templateName.toLowerCase();
-    //     const templateInfo = TEMPLATES_REGISTRY[normalizedTemplateName];
-    //     if (!templateInfo) {
-    //         throw new Error(`Шаблон "${templateName}" не найден.`);
-    //     }
-    //     const requiredTags = templateInfo.tags_in_template;
-    //     // --- НАЧАЛО ИСПРАВЛЕНИЯ: ПОЛУЧАЕМ ИСТОРИЮ ЧАТА ---
-    //     const history = await this.chatHistoryService.getHistory(userId, ChatType.DOCUMENT);
-    //     const historyText = history.map(h => `${h.role}: ${h.parts[0].text}`).join('\n');
-    //     // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
-    //     const prompt = `
-    //     Твоя роль - сверхточный робот-аналитик JSON, который умеет работать с контекстом диалога. Твоя работа критически важна.
-
-    //     **ПЛАН ДЕЙСТВИЙ:**
-    //     1.  **АНАЛИЗ НАМЕРЕНИЯ в ПОСЛЕДНЕМ СООБЩЕНИИ ПОЛЬЗОВАТЕЛЯ:**
-    //         -   **ЕСЛИ** последнее сообщение — это команда отмены ("отмена", "не хочу", "керек жок"), верни JSON: \`{"intent": "cancel"}\`.
-    //         -   **ЕСЛИ** последнее сообщение — это желание начать новый документ ("хочу другой документ"), верни JSON: \`{"intent": "new_document"}\`.
-    //         -   **ЕСЛИ** последнее сообщение — это вопрос не по теме или бессмыслица ("а что такое акт?", "сосед затопил", "пофиг"), верни JSON: \`{"intent": "query"}\`.
-    //         -   **ИНАЧЕ**, переходи к ИЗВЛЕЧЕНИЮ ДАННЫХ.
-
-    //     2.  **ИЗВЛЕЧЕНИЕ ДАННЫХ ИЗ ВСЕГО ДИАЛОГА:**
-    //         -   Проанализируй ВЕСЬ предоставленный 'Диалог'. Собери всю информацию, которую пользователь дал в своих сообщениях.
-    //         -   Для КАЖДОГО тега из 'Списка тегов' найди значение в диалоге.
-    //         -   "isComplete" должно быть 'true' ТОЛЬКО если найдены ВСЕ теги. Если не нашел хотя бы ОДИН, "isComplete" ДОЛЖНО быть 'false', а сам тег должен быть в массиве "missingFields".
-
-    //     **--- НОВЫЙ, УСИЛЕННЫЙ ПРИМЕР ДЛЯ СПИСКОВ ---**
-    //     ПРИМЕР 'Текста для анализа': "Құжаттар: Техникалық тапсырма №01-ТТ/2024 — жөндеуге арналған. Жөндеу жобасы №ПЖ-17/2024 — қасбетті сырлау. Смета №СМ-2024/88."
-    //     ПРИМЕР 'Списка тегов': ["docs", "name", "notes"]
-    //     ТВОЙ ПРАВИЛЬНЫЙ РЕЗУЛЬТАТ для этого примера:
-    //     {
-    //         "isComplete": true, // (предположим, что все остальные теги тоже найдены)
-    //         "missingFields": [],
-    //         "data": {
-    //             "docs": [
-    //                 { "name": "Техникалық тапсырма №01-ТТ/2024", "notes": "жөндеуге арналған" },
-    //                 { "name": "Жөндеу жобасы №ПЖ-17/2024", "notes": "қасбетті сырлау" },
-    //                 { "name": "Смета №СМ-2024/88", "notes": "" }
-    //             ]
-    //         }
-    //     }
-    //     **--- КОНЕЦ ПРИМЕРА ---**
-
-    //     Теперь выполни задачу для реальных данных.
-
-    //     **Список требуемых тегов:** 
-    //     ${JSON.stringify(requiredTags)}
-
-    //     **Диалог для анализа:**
-    //     ---
-    //     ${historyText}
-    //     Пользователь: ${userAnswersPrompt}
-    //     ---
-
-    //     Верни ответ СТРОГО в формате JSON.
-    //     `;
-
-
-    //     try {
-    //         const rawResponse = await this.generateWithRetry(prompt);
-    //         const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-    //         if (!jsonMatch) {
-    //             console.error("AI не вернул валидный JSON. Ответ:", rawResponse);
-    //             throw new Error("Не удалось извлечь данные.");
-    //         }
-
-    //         const parsedResponse = JSON.parse(jsonMatch[0]);
-
-    //         if (parsedResponse.isComplete === false && !parsedResponse.intent && (!parsedResponse.missingFields || parsedResponse.missingFields.length === 0)) {
-    //             parsedResponse.missingFields = requiredTags;
-    //         }
-
-    //         return parsedResponse;
-
-    //     } catch (error) {
-    //         console.error('Критическая ошибка при извлечении данных:', error);
-    //         return { isComplete: false, missingFields: requiredTags, data: {} };
-    //     }
-    // }
     async extractDataForDocx(
         userAnswersPrompt: string,
         templateName: string,
@@ -651,16 +566,16 @@ export class DocumentAiService implements OnModuleInit {
         if (!templateInfo) {
             throw new Error(`Шаблон "${templateName}" не найден.`);
         }
-    
+
         const requiredTags = currentTag ? [currentTag] : templateInfo.tags_in_template;
         const history = await this.chatHistoryService.getHistory(userId, ChatType.DOCUMENT);
         const historyText = history.map(h => `${h.role === 'user' ? 'Пользователь' : 'Ассистент'}: ${h.parts[0].text}`).join('\n');
         const language = this.detectLanguage(userAnswersPrompt);
-    
+
         const validationErrorResponse = language === 'kz'
             ? "Кешіріңіз, сіздің жауабыңыз сұраққа сәйкес келмейтін сияқты. Қайталап көріңізші."
             : "Извините, ваш ответ не похож на релевантную информацию. Пожалуйста, попробуйте еще раз.";
-    
+
         const prompt = `
             Твоя роль - сверхточный робот-аналитик и валидатор JSON. Твоя работа критически важна.
     
@@ -707,7 +622,7 @@ export class DocumentAiService implements OnModuleInit {
             
             Верни ответ СТРОГО в формате JSON.
             `;
-    
+
         try {
             const rawResponse = await this.generateWithRetry(prompt);
             const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
@@ -715,9 +630,9 @@ export class DocumentAiService implements OnModuleInit {
                 console.error("AI не вернул валидный JSON. Ответ:", rawResponse);
                 return { error: "Внутренняя ошибка обработки ответа." };
             }
-    
+
             return JSON.parse(jsonMatch[0]);
-    
+
         } catch (error) {
             console.error('Критическая ошибка при извлечении данных:', error);
             return { error: "Критическая ошибка при обработке вашего запроса." };
