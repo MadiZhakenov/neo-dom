@@ -1,3 +1,5 @@
+// src\ai\pdf\pdf.service.spec.ts
+
 import { Test, TestingModule } from '@nestjs/testing';
 import { PdfService } from './pdf.service';
 

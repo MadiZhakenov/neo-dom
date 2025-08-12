@@ -1,3 +1,5 @@
+// src\users\entities\user.entity.ts
+
 import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from 'typeorm';
 import { ChatMessage } from '../../chat/entities/chat-message.entity';
 

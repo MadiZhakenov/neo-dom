@@ -1,3 +1,5 @@
+// src\chat\chat.controller.ts
+
 import { Controller, Get, UseGuards, Request, Header } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ChatHistoryService } from './history/history.service';

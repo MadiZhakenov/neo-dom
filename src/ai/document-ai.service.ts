@@ -190,7 +190,7 @@ export class DocumentAiService implements OnModuleInit {
                             return { type: 'chat', content: { action: 'clarification', message } };
                         }
                     }
-                } 
+                }
 
                 // --- КОНЕЦ БЛОКА ПРОВЕРКИ ЛИМИТОВ ---
 

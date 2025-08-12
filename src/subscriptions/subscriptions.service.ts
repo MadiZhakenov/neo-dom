@@ -1,3 +1,5 @@
+// src\subscriptions\subscriptions.service.ts
+
 import { HttpService } from '@nestjs/axios';
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
