@@ -193,11 +193,34 @@ export class DocumentAiService implements OnModuleInit {
             // Он будет анализировать ВСЮ историю, но искать ответ на КОНКРЕТНЫЙ вопрос
             const extractionResult = await this.extractDataForDocx(prompt, user.doc_chat_template, userId, currentField.question, currentField.tag);
 
-            if (extractionResult.intent) {
-                await this.usersService.resetDocChatState(userId);
-                const intentResult = await this.findTemplate(prompt);
-                return this.handleClarification(intentResult, language);
+            // --- НАЧАЛО НОВОЙ ЛОГИКИ ОБРАБОТКИ ОТМЕНЫ ---
+            if (extractionResult.intent === 'cancel') {
+                const message = language === 'kz'
+                    ? 'Құжатты толтыруды тоқтатқыңыз келетініне сенімдісіз бе? (иә/жоқ)'
+                    : 'Вы уверены, что хотите отменить заполнение документа? (да/нет)';
+
+                // Сохраняем "запрос на отмену" во временном состоянии
+                await this.usersService.updateDocChatState(userId, currentIndex, user.doc_chat_pending_data, 'cancel_pending');
+
+                return { type: 'chat', content: { action: 'clarification', message } };
             }
+
+            // Если пользователь подтверждает отмену
+            if (user.doc_chat_request_id === 'cancel_pending' && ['иә', 'да', 'yes'].includes(prompt.toLowerCase())) {
+                await this.usersService.resetDocChatState(userId);
+                return this.handleClarification({ intent: 'clarification_needed' }, language);
+            }
+
+            // Если пользователь передумал отменять
+            if (user.doc_chat_request_id === 'cancel_pending') {
+                await this.usersService.updateDocChatState(userId, currentIndex, user.doc_chat_pending_data); // Убираем флаг cancel_pending
+                // и повторяем предыдущий вопрос
+                const message = currentField.example
+                    ? `${currentField.question}\n${currentField.example}`
+                    : currentField.question;
+                return { type: 'chat', content: { action: 'collect_data', message } };
+            }
+            // --- КОНЕЦ НОВОЙ ЛОГИКИ ОБРАБОТКИ ОТМЕНЫ ---
 
             if (extractionResult.error) {
                 const retryMessage = `${extractionResult.error}\n\n${currentField.question}`;
@@ -211,9 +234,9 @@ export class DocumentAiService implements OnModuleInit {
             if (nextIndex < allFields.length) {
                 await this.usersService.updateDocChatState(userId, nextIndex, newData);
                 const nextField = allFields[nextIndex];
-                const message = nextField.example
-                    ? `${nextField.question}\n*Мысалы: ${nextField.example}*`
-                    : nextField.question;
+                const message = (nextField.example && !nextField.question.includes(nextField.example))
+                ? `${nextField.question}\n${nextField.example}`
+                : nextField.question;
                 return { type: 'chat', content: { action: 'collect_data', message: message } };
             } else {
                 let finalData = newData;
@@ -320,15 +343,15 @@ export class DocumentAiService implements OnModuleInit {
 
     private _getFormattedTemplateList(language: 'ru' | 'kz'): string {
         const header = language === 'kz'
-            ? "Міне, қолжетімді құжаттар тізімі:\n\n"
-            : "Вот список доступных документов:\n\n";
-
+            ? "Міне, қолжетімді құжаттар тізімі:\n"
+            : "Вот список доступных документов:\n";
+        
         const templateList = this._templateNames
-            .map(t => `* ${t.humanName}`)
-            .join('\n');
+            .map(t => `\n- ${t.humanName}`) // Используем дефис для лучшей читаемости
+            .join('');
+        
         return header + templateList;
     }
-
     private async getQuestionsForTemplate(templateName: string): Promise<any> {
         const fields = await this.getFieldsForTemplate(templateName);
         const questions = await this.formatQuestionsForUser(fields, templateName);
@@ -529,57 +552,49 @@ export class DocumentAiService implements OnModuleInit {
     ): Promise<{ data?: any; intent?: string; error?: string }> {
         const normalizedTemplateName = templateName.toLowerCase();
         const templateInfo = TEMPLATES_REGISTRY[normalizedTemplateName];
+        if (!templateInfo) throw new Error(`Шаблон "${templateName}" не настроен.`);
+        
         const element = templateInfo.tags_in_template.find(t => (typeof t === 'string' && t === currentTag) || (typeof t === 'object' && t.loopName === currentTag));
-
-        // --- НАЧАЛО НОВОГО ПРОМПТА С ЯВНЫМ ПРИМЕРОМ ДЛЯ ТАБЛИЦ ---
-        let prompt = `Твоя задача — извлечь данные из ответа пользователя и вернуть их в виде JSON.`;
-
+        const language = templateInfo.language;
+    
+        // --- НАЧАЛО МОДИФИЦИРОВАННОГО ПРОМПТА ---
+    
+        let prompt = `
+          Твоя задача — проанализировать "Ответ пользователя" и вернуть результат в виде JSON. Действуй строго по плану.
+    
+          **Контекст:**
+          - Язык для генерации сообщений: ${language}
+          - Вопрос, который был задан: "${currentQuestion}"
+          - Ответ пользователя: "${userAnswersPrompt}"
+    
+          **ПЛАН ДЕЙСТВИЙ:**
+          1.  **ПРОВЕРКА НА ОТМЕНУ (ВЫСШИЙ ПРИОРИТЕТ):** Сначала проверь, не выражает ли ответ явный отказ, нежелание продолжать или просьбу начать заново (например, "отмена", "не хочу", "давай другой", "керек емес", "бас тартамын"). Если да, немедленно прекрати анализ и верни ТОЛЬКО следующий JSON:
+              \`{"intent": "cancel"}\`
+          
+          2.  **ИЗВЛЕЧЕНИЕ ДАННЫХ:** Если это не отмена, попробуй извлечь данные.`;
+    
         if (typeof element === 'object' && element.loopName) {
-            // Специальный, усиленный промпт для циклов
+            // Дополняем промпт инструкциями для циклов
             prompt += `
-            **Контекст:**
-            - Вопрос пользователю: "${currentQuestion}"
-            - Ответ пользователя: "${userAnswersPrompt}"
-            - Целевой тег цикла: "${element.loopName}"
-            - Поля в цикле: ${element.loopTags.join(', ')}
-    
-            **ПРАВИЛА ИЗВЛЕЧЕНИЯ ДАННЫХ ДЛЯ ЦИКЛА:**
-            1. Проанализируй "Ответ пользователя". Он может содержать несколько элементов.
-            2. Преобразуй этот текст в **массив JSON-объектов**. Каждый элемент, перечисленный пользователем, должен стать отдельным объектом в массиве.
-            3. **СТРОГО СОПОСТАВЛЯЙ** данные с полями цикла.
-    
-            **КОНКРЕТНЫЙ ПРИМЕР:**
-            - **ЕСЛИ поля в цикле это ['index', 'name', 'notes']**
-            - **И Ответ пользователя такой:** "1. Технический паспорт, это копия. 2. Проект ремонта, это оригинал"
-            - **ТОГДА твой результат ДОЛЖЕН БЫТЬ ТАКИМ JSON:**
-            \`\`\`json
-            {
-              "data": {
-                "${element.loopName}": [
-                  { "index": "1", "name": "Технический паспорт", "notes": "это копия" },
-                  { "index": "2", "name": "Проект ремонта", "notes": "это оригинал" }
-                ]
-              }
-            }
-            \`\`\`
-            
-            **ВАЖНО:** Возвращай только JSON, без лишних слов.`;
+              *   **Правило для цикла:** Преобразуй ответ в **массив JSON-объектов**. Каждый элемент, перечисленный пользователем, должен стать отдельным объектом. Поля в объекте должны соответствовать: ${element.loopTags.join(', ')}.
+              *   **Пример:** Для полей ['index', 'name', 'notes'] и ответа "1. Паспорт, копия. 2. Проект, оригинал", результат должен быть:
+                  \`{"data": {"${element.loopName}": [{"index": "1", "name": "Паспорт", "notes": "копия"}, {"index": "2", "name": "Проект", "notes": "оригинал"}]}}\`
+            `;
         } else {
-            // Стандартный промпт для простых полей
+            // Дополняем промпт инструкциями для обычных полей
             prompt += `
-            **Контекст:**
-            - Вопрос пользователю: "${currentQuestion}"
-            - Ответ пользователя: "${userAnswersPrompt}"
-            - Целевой тег: "${currentTag}"
-    
-            **ПРАВИЛА ИЗВЛЕЧЕНИЯ:**
-            1. Извлеки всю релевантную информацию из ответа и верни ее как **единую строку**.
-            2. Если ответ нерелевантен, верни JSON с ошибкой.
-            
-            **ФОРМАТ ВЫВОДА:** \`{"data": {"${currentTag}": "извлеченное значение"}}\``;
+              *   **Правило для обычного поля:** Извлеки всю релевантную информацию из ответа и верни ее как **единую строку**.
+              *   **Результат:** \`{"data": {"${currentTag}": "извлеченное значение"}}\`
+            `;
         }
-        // --- КОНЕЦ НОВОГО ПРОМПТА ---
-
+    
+        prompt += `
+          3.  **ПРОВЕРКА НА РЕЛЕВАНТНОСТЬ:** Если ответ не является отменой и из него невозможно извлечь осмысленные данные (ответ не по теме), верни JSON с сообщением об ошибке **на ${language} языке**.
+              *   **Результат:** \`{"error": "Вежливое сообщение об ошибке на ${language} языке, просящее повторить ввод."}\`
+    
+          **ВАЖНО:** Возвращай только JSON, без лишних слов и объяснений.`;
+        // --- КОНЕЦ МОДИФИЦИРОВАННОГО ПРОМПТА ---
+    
         try {
             const rawResponse = await this.generateWithRetry(prompt);
             const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);

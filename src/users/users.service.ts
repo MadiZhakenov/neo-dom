@@ -268,10 +268,11 @@ async startDocChat(userId: number, templateName: string): Promise<void> {
 /**
 * Обновляет состояние диалога: переходит к следующему вопросу и сохраняет накопленные данные.
 */
-async updateDocChatState(userId: number, nextQuestionIndex: number, pendingData: Record<string, any>): Promise<void> {
+async updateDocChatState(userId: number, nextQuestionIndex: number, pendingData: Record<string, any>, requestId: string | null = null): Promise<void> {
   await this.usersRepository.update(userId, {
       doc_chat_question_index: nextQuestionIndex,
       doc_chat_pending_data: pendingData,
+      doc_chat_request_id: requestId,
   });
 }
 
