@@ -165,17 +165,34 @@ export class DocumentAiService implements OnModuleInit {
         throw lastError || new Error('Не удалось получить ответ от AI после всех попыток со всеми моделями.');
     }
 
-    public detectLanguage(text: string): 'ru' | 'kz' {
-        const kzSpecificChars = /[әғқңөұүіһӘҒҚҢӨҰҮІҺ]/;
-        if (kzSpecificChars.test(text)) { return 'kz'; }
-        const kzCommonWords = /(және|немесе|туралы|бойынша|бастап|дейін|үшін|арқылы)/i;
-        if (kzCommonWords.test(text)) { return 'kz'; }
-        return 'ru';
+    /**
+     * Определяет язык текста (русский или казахский) с помощью AI.
+     * @param text Входной текст пользователя.
+     * @returns 'ru' или 'kz'.
+     */
+    public async detectLanguage(text: string): Promise<'ru' | 'kz'> {
+        // Короткий, быстрый и очень точный промпт
+        const prompt = `
+      Определи основной язык этого текста: "${text}".
+      В ответе верни ТОЛЬКО 'ru' (для русского) или 'kz' (для казахского).
+    `;
+
+        try {
+            const result = (await this.generateWithRetry(prompt)).trim().toLowerCase();
+    
+            if (result === 'kz') {
+                return 'kz';
+            }
+            return 'ru';
+        } catch (error) {
+            console.error("Ошибка при определении языка:", error);
+            return 'ru'; // Безопасный fallback в случае ошибки API
+        }
     }
 
     async processDocumentMessage(prompt: string, user: User): Promise<DocumentProcessingResponse> {
         const userId = user.id;
-        const language = this.detectLanguage(prompt);
+        const language = await this.detectLanguage(prompt);
 
         // БЛОК 1: ПОШАГОВЫЙ ДИАЛОГ
         if (user.doc_chat_template) {
@@ -195,15 +212,18 @@ export class DocumentAiService implements OnModuleInit {
             // --- НАЧАЛО ФИНАЛЬНОЙ ЛОГИКИ ОБРАБОТКИ ОТМЕНЫ ---
 
             // Определяем язык ПОСЛЕДНЕГО сообщения пользователя
-            const userMessageLanguage = this.chatAiService.detectLanguage(prompt);
+            const userMessageLanguage = await this.chatAiService.detectLanguage(prompt);
 
             // 1. Пользователь инициирует отмену
             if (extractionResult.intent === 'cancel') {
+                // Определяем язык СООБЩЕНИЯ пользователя, чтобы ответить на том же языке
+                const userMessageLanguage = await this.chatAiService.detectLanguage(prompt);
+
                 const message = userMessageLanguage === 'kz'
                     ? 'Сіз құжатты толтыруды тоқтатқыңыз келетініне сенімдісіз бе? (иә/жоқ)'
                     : 'Вы уверены, что хотите отменить заполнение документа? (да/нет)';
 
-                // Сохраняем "запрос на отмену" во временном состоянии
+                // Переводим диалог в состояние ожидания подтверждения отмены
                 await this.usersService.updateDocChatState(userId, currentIndex, user.doc_chat_pending_data, 'cancel_pending');
 
                 return { type: 'chat', content: { action: 'clarification', message } };
@@ -211,17 +231,25 @@ export class DocumentAiService implements OnModuleInit {
 
             // 2. Пользователь отвечает на вопрос об отмене
             if (user.doc_chat_request_id === 'cancel_pending') {
-                // Пользователь ПОДТВЕРДИЛ отмену на любом языке
-                if (['иә', 'да', 'yes'].includes(prompt.toLowerCase().trim())) {
+                // Используем AI, чтобы понять ответ пользователя (согласен или нет)
+                const confirmationPrompt = `
+                  Проанализируй ответ пользователя. Он выражает согласие/подтверждение?
+                  Ответ пользователя: "${prompt}"
+                  Верни только одно слово: "иә" если согласие, "жоқ" если несогласие.
+                `;
+                const confirmationResult = await this.chatAiService.generateWithRetry(confirmationPrompt);
+
+                // Пользователь ПОДТВЕРДИЛ отмену
+                if (confirmationResult.toLowerCase().includes('иә')) {
                     await this.usersService.resetDocChatState(userId);
-                    // Используем язык последнего сообщения для ответа
-                    return this.handleClarification({ intent: 'clarification_needed' }, userMessageLanguage);
+                    // Возвращаемся к выбору документа. Язык ответа соответствует языку ДОКУМЕНТА.
+                    return this.handleClarification({ intent: 'clarification_needed' }, language);
                 }
-                // Пользователь ОТКАЗАЛСЯ от отмены
+                // Пользователь ПЕРЕДУМАЛ отменять
                 else {
-                    // Убираем флаг cancel_pending
-                    await this.usersService.updateDocChatState(userId, currentIndex, user.doc_chat_pending_data);
-                    // и повторяем предыдущий вопрос
+                    // Убираем флаг ожидания и повторяем предыдущий вопрос
+                    await this.usersService.updateDocChatState(userId, currentIndex, user.doc_chat_pending_data, null);
+
                     const message = currentField.example
                         ? `${currentField.question}\n${currentField.example}`
                         : currentField.question;

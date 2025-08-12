@@ -124,7 +124,7 @@ export class ChatAiService implements OnModuleInit {
        * @param retries - Количество повторных попыток.
        * @returns Текстовый ответ от AI.
        */
-    private async generateWithRetry(prompt: any, history: Content[] = [], retries = 3): Promise<string> {
+    public async generateWithRetry(prompt: any, history: Content[] = [], retries = 3): Promise<string> {
         const model = history.length > 0 ? this.primaryModel : this.fallbackModel;
         for (let i = 0; i < retries; i++) {
             try {
@@ -160,7 +160,7 @@ export class ChatAiService implements OnModuleInit {
         throw new Error('Не удалось получить ответ от AI после всех попыток.');
     }
 
-    
+
     /**
        * Генерирует ответ для общего чата, используя RAG и историю.
        * @param prompt - Запрос пользователя.
