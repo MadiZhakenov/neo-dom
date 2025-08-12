@@ -160,6 +160,7 @@ export class ChatAiService implements OnModuleInit {
         throw new Error('Не удалось получить ответ от AI после всех попыток.');
     }
 
+    
     /**
        * Генерирует ответ для общего чата, используя RAG и историю.
        * @param prompt - Запрос пользователя.
