@@ -379,59 +379,72 @@ export class DocumentAiService implements OnModuleInit {
      * @param templateName - Имя файла шаблона.
      * @returns Массив объектов с полями 'tag' (для машины) и 'question' (для человека).
      */
-    async getFieldsForTemplate(templateName: string): Promise<{ tag: string, question: string }[]> {
+    async getFieldsForTemplate(templateName: string): Promise<{ tag: string; question: string; example?: string }[]> {
         const normalizedTemplateName = templateName.toLowerCase();
         const templateInfo = TEMPLATES_REGISTRY[normalizedTemplateName];
         if (!templateInfo) throw new Error(`Шаблон "${templateName}" не настроен.`);
-
+      
         // --- НАЧАЛО ФИНАЛЬНОГО УНИВЕРСАЛЬНОГО ПРОМПТА ---
         const prompt = `
-    Твоя главная задача: Сгенерировать логичный и последовательный список вопросов для пользователя, проанализировав PDF-документ и список тегов.
-
-    **КРИТИЧЕСКОЕ ПРАВИЛО ЯЗЫКА:** Все вопросы и их формулировки ДОЛЖНЫ БЫТЬ СТРОГО на языке "${templateInfo.language}".
-    
-    **ПРАВИЛА ГРУППИРОВКИ (ОЧЕНЬ ВАЖНО):**
-    Твоя цель — создать минимально возможное количество логичных вопросов. Для этого ты ОБЯЗАН группировать связанные теги в один вопрос.
-    1.  **ДАННЫЕ О ЛЮДЯХ:** Если видишь теги, описывающие одного человека (например, 'sender_fio', 'sender_position', 'chairman_details'), сгруппируй их в ОДИН вопрос. Пример вопроса: "Укажите ФИО, должность и полномочия Председателя".
-    2.  **ДАННЫЕ О ДАТАХ:** Если видишь теги, содержащие 'day', 'month', 'year' (например, 'acceptor_day', 'approval_year'), сгруппируй их в ОДИН вопрос о полной дате. Пример вопроса: "Укажите дату утверждения".
-    3.  **ДАННЫЕ ДЛЯ ТАБЛИЦ/СПИСКОВ:** Если видишь родительский тег цикла (например, 'documents', 'work_items', 'commission_signatures') и дочерние теги (например, 'doc_name', 'work_name'), сгруппируй их все в ОДИН ОБЩИЙ И ПОДРОБНЫЙ вопрос. Этот вопрос должен быть привязан к родительскому тегу цикла (например, 'documents') и просить пользователя перечислить все элементы списка со всеми их атрибутами. **НЕ ДЕЛИ ЭТОТ ВОПРОС НА ЧАСТИ!**
-
-    **АЛГОРИТМ ДЕЙСТВИЙ:**
-    1. Изучи PDF-документ, чтобы понять его структуру и контекст.
-    2. Проанализируй "Список тегов".
-    3. Примени "Правила группировки", чтобы объединить связанные теги.
-    4. Для каждого тега или логической группы тегов сформулируй вежливый и понятный вопрос, который поможет пользователю заполнить соответствующую часть документа.
-    
-    Верни ответ **СТРОГО и ТОЛЬКО в виде JSON-массива** объектов: {"tag": "...", "question": "..."}. Без Markdown.
-
-    ---
-    **ИСХОДНЫЕ ДАННЫЕ:**
-
-    **Список тегов, которые ты должен покрыть:**
-    ${templateInfo.tags_in_template.join(', ')}
-    ---
-`;
+          Твоя главная задача: Проанализировать PDF-документ и "Список тегов" и сгенерировать логичный и последовательный список вопросов для пользователя.
+      
+          **КРИТИЧЕСКОЕ ПРАВИЛО ЯЗЫКА:** Все вопросы, их формулировки и ПРИМЕРЫ ДОЛЖНЫ БЫТЬ СТРОГО на языке "${templateInfo.language}".
+      
+          **ПРАВИЛА ГРУППИРОВКИ (ОЧЕНЬ ВАЖНО):**
+          Твоя цель — создать минимально возможное количество логичных вопросов. Для этого ты ОБЯЗАН группировать связанные теги в один вопрос.
+          1.  **ДАННЫЕ О ЛЮДЯХ:** Если видишь теги, описывающие одного человека (например, 'sender_fio', 'sender_position', 'chairman_details'), сгруппируй их в ОДИН вопрос.
+              *   **Тег для JSON:** Используй общий тег, например, 'customer_details'.
+              *   **Пример вопроса:** "Укажите ФИО, должность и полномочия Председателя".
+              *   **Пример ответа для примера:** "Иванов Иван Иванович, Председатель КСК, действует на основании Устава".
+          2.  **ДАННЫЕ О ДАТАХ:** Если видишь теги, содержащие 'day', 'month', 'year' (например, 'acceptor_day', 'approval_year'), сгруппируй их в ОДИН вопрос о полной дате.
+              *   **Тег для JSON:** Используй общий тег, например, 'act_date'.
+              *   **Пример вопроса:** "Укажите дату утверждения акта".
+              *   **Пример ответа для примера:** "25 мая 2025 года".
+          3.  **ДАННЫЕ ДЛЯ ТАБЛИЦ/СПИСКОВ:** Если видишь родительский тег цикла (например, 'documents', 'work_items') и дочерние теги ('doc_name', 'work_name'), сгруппируй их все в ОДИН ОБЩИЙ И ПОДРОБНЫЙ вопрос.
+              *   **Тег для JSON:** Используй родительский тег ('documents').
+              *   **Пример вопроса:** "Перечислите все передаваемые документы, указывая для каждого его название и примечание."
+              *   **Пример ответа для примера:** "1. Проектная документация - Вся необходимая документация. 2. Технический паспорт - Копия."
+      
+          **АЛГОРИТМ ДЕЙСТВИЙ:**
+          1. Изучи PDF-документ, чтобы понять его структуру.
+          2. Проанализируй "Список тегов".
+          3. Примени "Правила группировки", чтобы объединить связанные теги.
+          4. Для каждой группы тегов сформулируй вежливый и понятный вопрос и краткий, ясный пример ответа.
+      
+          **ФОРМАТ ВЫВОДА:**
+          Верни ответ **СТРОГО и ТОЛЬКО в виде JSON-массива** объектов: {"tag": "...", "question": "...", "example": "..."}. Без Markdown.
+      
+          **ИСХОДНЫЕ ДАННЫЕ:**
+          **Список тегов, которые ты должен покрыть:**
+          ${templateInfo.tags_in_template.join(', ')}
+          `;
         // --- КОНЕЦ ФИНАЛЬНОГО УНИВЕРСАЛЬНОГО ПРОМПТА ---
+      
         const pdfPreviewPath = path.join(process.cwd(), 'knowledge_base', 'templates', 'pdf_previews', normalizedTemplateName.replace('.docx', '.pdf'));
         if (!fs.existsSync(pdfPreviewPath)) throw new Error(`PDF-превью для шаблона "${normalizedTemplateName}" не найдено.`);
-
+      
         const pdfBuffer = fs.readFileSync(pdfPreviewPath);
         const base64Pdf = pdfBuffer.toString('base64');
-
+      
         for (let attempt = 1; attempt <= 3; attempt++) {
-            try {
-                const result = await this.generateWithRetry([{ text: prompt }, { inlineData: { mimeType: 'application/pdf', data: base64Pdf } }]);
-                const jsonMatch = result.match(/\[[\s\S]*\]/);
-                if (jsonMatch && jsonMatch[0]) return JSON.parse(jsonMatch[0]);
-                throw new Error('Valid JSON array not found in AI response.');
-            } catch (error) {
-                console.error(`[AI Service] Попытка ${attempt} не удалась при анализе шаблона ${templateName}. Ошибка:`, error.message);
-                if (attempt === 3) throw new Error('Не удалось сгенерировать вопросы для документа.');
-                await delay(500);
-            }
+          try {
+            const result = await this.generateWithRetry([{ text: prompt }, { inlineData: { mimeType: 'application/pdf', data: base64Pdf } }]);
+            const jsonMatch = result.match(/\`\`\`json\s*([\s\S]*?)\s*\`\`\`/); // Ищем код в блоке json
+            if (jsonMatch && jsonMatch[1]) return JSON.parse(jsonMatch[1]);
+      
+            // Если не нашли в блоке, пробуем найти просто валидный массив
+            const arrayMatch = result.match(/\[[\s\S]*\]/);
+            if (arrayMatch && arrayMatch[0]) return JSON.parse(arrayMatch[0]);
+      
+            throw new Error('Valid JSON array not found in AI response.');
+          } catch (error) {
+            console.error(`[AI Service] Попытка ${attempt} не удалась при анализе шаблона ${templateName}. Ошибка:`, error.message);
+            if (attempt === 3) throw new Error(`Не удалось сгенерировать вопросы для документа: ${templateName}.`);
+            await delay(500);
+          }
         }
         throw new Error('Не удалось сгенерировать вопросы после всех попыток.');
-    }
+      }
 
     /**
   * Форматирует JSON-массив вопросов в красивый, читаемый текст для отображения пользователю.
@@ -442,26 +455,26 @@ export class DocumentAiService implements OnModuleInit {
     async formatQuestionsForUser(fields: any[], templateName: string): Promise<string> {
         const templateHumanName = TEMPLATES_REGISTRY[templateName.toLowerCase()]?.name || templateName;
         const language = TEMPLATES_REGISTRY[templateName.toLowerCase()]?.language || 'ru';
-
+      
         const title = language === 'kz'
-            ? `'${templateHumanName}' құжатын толтыру үшін келесі ақпарат қажет:`
-            : `Для заполнения документа '${templateHumanName}' потребуется следующая информация:`;
-
-
-        const prompt = `
-      Ты чат-бот-помощник. Из следующего JSON-массива вопросов сформируй красивый, форматированный текст для пользователя.
-      Текст должен быть вежливым и понятным.
-      ВАЖНОЕ ПРАВИЛО ЯЗЫКА: Весь текст ответа (вопросы, примеры) должен быть на том же языке (${language}), на котором сформулированы "question" в JSON. Не переводи их.
+          ? `"${templateHumanName}" құжатын толтыру үшін келесі ақпарат қажет:`
+          : `Для заполнения документа "${templateHumanName}" потребуется следующая информация:`;
       
-      Начни с заголовка: "${title}"
+        // 1. Берем готовый массив `fields`
+        // 2. Проходим по нему циклом `map`
+        const questionsText = fields.map((field, index) => {
+          // 3. Для каждого элемента создаем строку в нужном формате
+          let questionBlock = `${index + 1}. ${field.question}`;
+          if (field.example) {
+            const exampleLabel = language === 'kz' ? 'Мысалы' : 'Например';
+            questionBlock += `\n   *${exampleLabel}: ${field.example}*`;
+          }
+          return questionBlock;
+        }).join('\n\n'); // 4. Соединяем все строки в один большой текст
       
-      Не используй Markdown. Не включай вводных слов вроде "Конечно, вот...".
-
-      JSON-массив с вопросами:
-      ${JSON.stringify(fields, null, 2)}
-    `;
-        return this.generateWithRetry(prompt);
-    }
+        // 5. Возвращаем готовую отформатированную строку
+        return `${title}\n\n${questionsText}`;
+      }
 
     async extractDataForDocx(
         userAnswersPrompt: string,
@@ -469,86 +482,56 @@ export class DocumentAiService implements OnModuleInit {
         userId: number,
         currentQuestion?: string,
         currentTag?: string,
-    ): Promise<{ data?: any; isComplete?: boolean; missingFields?: string[]; intent?: string; error?: string }> {
+      ): Promise<{ data?: any; isComplete?: boolean; missingFields?: string[]; intent?: string; error?: string }> {
         const normalizedTemplateName = templateName.toLowerCase();
         const templateInfo = TEMPLATES_REGISTRY[normalizedTemplateName];
         if (!templateInfo) {
-            throw new Error(`Шаблон "${templateName}" не найден.`);
+          throw new Error(`Шаблон "${templateName}" не найден.`);
         }
-
-        // --- НАЧАЛО ИЗМЕНЕНИЙ ---
-
-        // Мы всегда будем работать в контексте одного тега/вопроса в этом методе.
-        const requiredTags = currentTag ? [currentTag] : templateInfo.tags_in_template;
+      
+        // --- НАЧАЛО ФИНАЛЬНОГО УЛУЧШЕННОГО ПРОМПТА ---
         const language = this.detectLanguage(userAnswersPrompt);
-
         const prompt = `
-          Твоя задача — извлечь структурированные данные из ответа пользователя на конкретный вопрос.
+          Твоя задача — извлечь данные из ответа пользователя и вернуть их в виде JSON.
       
-          **КОНТЕКСТ:**
-          - Язык пользователя: ${language}
-          - Конкретный вопрос, который был задан: "${currentQuestion}"
-          - Теги, которые нужно извлечь: ${JSON.stringify(requiredTags)}
+          **Контекст:**
+          - Вопрос, который был задан пользователю: "${currentQuestion}"
           - Ответ пользователя: "${userAnswersPrompt}"
+          - Целевой тег для извлечения: "${currentTag}"
       
-          **ПЛАН ДЕЙСТВИЙ:**
-          1.  Проанализируй "Ответ пользователя".
-          2.  Если ответ хотя бы частично релевантен вопросу, извлеки информацию и верни JSON ТОЛЬКО в формате:
-              \`\`\`json
-              {
-                "data": {
-                  "${requiredTags[0]}": "извлеченное значение"
-                }
-              }
-              \`\`\`
-              *   Для списков (если тег 'documents', 'work_items' и т.п.), используй массив объектов. Пример:
-                  { "data": { "documents": [{ "name": "...", "notes": "..." }] } }
-          3.  Если ответ АБСОЛЮТНО нерелевантен (бессмыслица, другой вопрос), верни JSON ТОЛЬКО в формате:
-              \`\`\`json
-              {
-                "error": "Ваш ответ не соответствует вопросу. Пожалуйста, попробуйте еще раз."
-              }
-              \`\`\`
-          4.  Если пользователь хочет отменить действие ("отмена", "не надо"), верни JSON ТОЛЬКО в формате:
-              \`\`\`json
-              {
-                "intent": "cancel"
-              }
-              \`\`\`
+          **ПЛАН ДЕЙСТВИЙ И ПРАВИЛА:**
+          1.  **АНАЛИЗ ОТВЕТА:** Внимательно прочти "Ответ пользователя".
+          2.  **ИЗВЛЕЧЕНИЕ ДАННЫХ:**
+              *   **ЕСЛИ ТЕГ НЕ ЯВЛЯЕТСЯ СПИСКОМ** (например, 'customer_details', 'act_date', 'property_address'): Извлеки всю релевантную информацию и ОБЪЕДИНИ ЕЕ В ОДНУ СТРОКУ.
+                  -   *Пример:* Если вопрос был про ФИО и должность, а ответ "Иванов Иван, Директор", то результат для тега 'customer_details' должен быть "Иванов Иван, Директор".
+              *   **ЕСЛИ ТЕГ ЯВЛЯЕТСЯ СПИСКОМ** (например, 'documents', 'work_items'): Извлеки данные в виде массива объектов.
+                  -   *Пример результата для 'documents':* [{"name": "Техпаспорт", "notes": "копия"}, {"name": "Проект", "notes": "оригинал"}]
+          3.  **ПРОВЕРКА НА РЕЛЕВАНТНОСТЬ:**
+              *   **ЕСЛИ ОТВЕТ РЕЛЕВАНТЕН:** Верни JSON ТОЛЬКО в формате: \`{"data": {"${currentTag}": "извлеченное значение или массив"}}\`
+              *   **ЕСЛИ ОТВЕТ НЕ РЕЛЕВАНТЕН (бред, бессмыслица):** Верни JSON ТОЛЬКО в формате: \`{"error": "Ваш ответ не соответствует вопросу. Пожалуйста, попробуйте еще раз."}\`
+          4.  **ПРОВЕРКА НА ОТМЕНУ:** Если пользователь явно отказывается ("отмена", "жок", "не нужно"), верни JSON ТОЛЬКО в формате: \`{"intent": "cancel"}\`.
       
-          **ВАЖНО:**
-          - Не добавляй никаких объяснений.
-          - Возвращай ТОЛЬКО JSON-объект.
+          **ВАЖНО:** Возвращай только JSON, без лишних слов и объяснений.
           `;
-
+        // --- КОНЕЦ ФИНАЛЬНОГО УЛУЧШЕННОГО ПРОМПТА ---
+      
         try {
-            // Добавляем отладочный лог, чтобы видеть, что мы отправляем в AI
-            console.log('--- EXTRACT_DATA PROMPT ---');
-            console.log(prompt);
-            console.log('---------------------------');
-
-            const rawResponse = await this.generateWithRetry(prompt);
-            const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-
-            if (!jsonMatch) {
-                console.error("AI не вернул валидный JSON. Ответ:", rawResponse);
-                return { error: "Внутренняя ошибка: не удалось обработать ответ." };
-            }
-
-            // Добавляем отладочный лог, чтобы видеть, что мы получили от AI
-            const parsedJson = JSON.parse(jsonMatch[0]);
-            console.log('--- EXTRACT_DATA RESPONSE ---');
-            console.log(parsedJson);
-            console.log('-----------------------------');
-
-            return parsedJson;
-
+          const rawResponse = await this.generateWithRetry(prompt);
+          const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+      
+          if (!jsonMatch) {
+            console.error("AI не вернул валидный JSON. Ответ:", rawResponse);
+            return { error: "Внутренняя ошибка: не удалось обработать ответ." };
+          }
+      
+          const parsedJson = JSON.parse(jsonMatch[0]);
+          return parsedJson;
+      
         } catch (error) {
-            console.error('Критическая ошибка при извлечении данных:', error);
-            return { error: "Критическая ошибка при обработке вашего запроса." };
+          console.error('Критическая ошибка при извлечении данных:', error);
+          return { error: "Критическая ошибка при обработке вашего запроса." };
         }
-        // --- КОНЕЦ ИЗМЕНЕНИЙ ---
-    }
+      }
     async getGeneratedDocument(fileId: string, userId: number): Promise<GeneratedDocument | null> {
         return this.generatedDocRepo.findOne({
             where: {
