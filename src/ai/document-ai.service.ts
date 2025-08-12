@@ -190,7 +190,8 @@ export class DocumentAiService implements OnModuleInit {
                             return { type: 'chat', content: { action: 'clarification', message } };
                         }
                     }
-                }
+                } 
+
                 // --- КОНЕЦ БЛОКА ПРОВЕРКИ ЛИМИТОВ ---
 
                 const docxBuffer = this.docxService.generateDocx(user.doc_chat_template, extractionResult.data);
