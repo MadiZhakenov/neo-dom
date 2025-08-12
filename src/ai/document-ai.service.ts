@@ -163,7 +163,7 @@ export class DocumentAiService implements OnModuleInit {
         // Если ни одна из моделей не ответила
         throw lastError || new Error('Не удалось получить ответ от AI после всех попыток со всеми моделями.');
     }
-    
+
     public detectLanguage(text: string): 'ru' | 'kz' {
         const kzSpecificChars = /[әғқңөұүіһӘҒҚҢӨҰҮІҺ]/;
         if (kzSpecificChars.test(text)) { return 'kz'; }
@@ -457,7 +457,7 @@ export class DocumentAiService implements OnModuleInit {
       Запрос: "${prompt}"
     `;
 
-        const rawResponse = await this.generateWithRetry(intentDetectionPrompt, history);
+        const rawResponse = await this.generateWithRetry(intentDetectionPrompt);
         const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
         if (!jsonMatch) { throw new Error("Не удалось определить шаблон."); }
 
