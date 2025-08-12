@@ -163,7 +163,7 @@ export class DocumentAiService implements OnModuleInit {
 
         // БЛОК 1: ПОЛЬЗОВАТЕЛЬ УЖЕ В ПРОЦЕССЕ ЗАПОЛНЕНИЯ
         if (user.doc_chat_template) {
-            const extractionResult = await this.extractDataForDocx(prompt, user.doc_chat_template);
+            const extractionResult = await this.extractDataForDocx(prompt, user.doc_chat_template, userId);
 
             // Если пользователь решил отменить или задать отвлеченный вопрос
             if (extractionResult.intent) {
@@ -472,27 +472,30 @@ export class DocumentAiService implements OnModuleInit {
      * @param templateName - Имя файла шаблона, для которого извлекаются данные.
      * @returns Объект с флагом isComplete, извлеченными данными (data) и списком недостающих полей (missingFields).
      */
-    async extractDataForDocx(userAnswersPrompt: string, templateName: string): Promise<{ data: any; isComplete: boolean; missingFields?: string[]; intent?: string }> {
+    async extractDataForDocx(userAnswersPrompt: string, templateName: string, userId: number): Promise<{ data: any; isComplete: boolean; missingFields?: string[]; intent?: string }> {
         const normalizedTemplateName = templateName.toLowerCase();
         const templateInfo = TEMPLATES_REGISTRY[normalizedTemplateName];
         if (!templateInfo) {
             throw new Error(`Шаблон "${templateName}" не найден.`);
         }
         const requiredTags = templateInfo.tags_in_template;
-
+        // --- НАЧАЛО ИСПРАВЛЕНИЯ: ПОЛУЧАЕМ ИСТОРИЮ ЧАТА ---
+        const history = await this.chatHistoryService.getHistory(userId, ChatType.DOCUMENT);
+        const historyText = history.map(h => `${h.role}: ${h.parts[0].text}`).join('\n');
+        // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
         const prompt = `
-        Твоя роль - сверхточный робот-аналитик JSON. Твоя работа критически важна.
+        Твоя роль - сверхточный робот-аналитик JSON, который умеет работать с контекстом диалога. Твоя работа критически важна.
 
         **ПЛАН ДЕЙСТВИЙ:**
-        1.  **АНАЛИЗ НАМЕРЕНИЯ:**
-            -   **ЕСЛИ** текст — это команда отмены ("отмена", "не хочу", "керек жок"), верни JSON: \`{"intent": "cancel"}\`.
-            -   **ЕСЛИ** текст — это желание начать новый документ ("хочу другой документ"), верни JSON: \`{"intent": "new_document"}\`.
-            -   **ЕСЛИ** текст — это вопрос не по теме или бессмыслица ("а что такое акт?", "сосед затопил", "пофиг"), верни JSON: \`{"intent": "query"}\`.
+        1.  **АНАЛИЗ НАМЕРЕНИЯ в ПОСЛЕДНЕМ СООБЩЕНИИ ПОЛЬЗОВАТЕЛЯ:**
+            -   **ЕСЛИ** последнее сообщение — это команда отмены ("отмена", "не хочу", "керек жок"), верни JSON: \`{"intent": "cancel"}\`.
+            -   **ЕСЛИ** последнее сообщение — это желание начать новый документ ("хочу другой документ"), верни JSON: \`{"intent": "new_document"}\`.
+            -   **ЕСЛИ** последнее сообщение — это вопрос не по теме или бессмыслица ("а что такое акт?", "сосед затопил", "пофиг"), верни JSON: \`{"intent": "query"}\`.
             -   **ИНАЧЕ**, переходи к ИЗВЛЕЧЕНИЮ ДАННЫХ.
 
-        2.  **ИЗВЛЕЧЕНИЕ ДАННЫХ:**
-            -   Проанализируй 'Текст для анализа'.
-            -   Для КАЖДОГО тега из 'Списка тегов' найди значение.
+        2.  **ИЗВЛЕЧЕНИЕ ДАННЫХ ИЗ ВСЕГО ДИАЛОГА:**
+            -   Проанализируй ВЕСЬ предоставленный 'Диалог'. Собери всю информацию, которую пользователь дал в своих сообщениях.
+            -   Для КАЖДОГО тега из 'Списка тегов' найди значение в диалоге.
             -   "isComplete" должно быть 'true' ТОЛЬКО если найдены ВСЕ теги. Если не нашел хотя бы ОДИН, "isComplete" ДОЛЖНО быть 'false', а сам тег должен быть в массиве "missingFields".
 
         **--- НОВЫЙ, УСИЛЕННЫЙ ПРИМЕР ДЛЯ СПИСКОВ ---**
@@ -514,9 +517,14 @@ export class DocumentAiService implements OnModuleInit {
         
         Теперь выполни задачу для реальных данных.
         
-        Список требуемых тегов: ${JSON.stringify(requiredTags)}
+        **Список требуемых тегов:** 
+        ${JSON.stringify(requiredTags)}
         
-        Текст для анализа: "${userAnswersPrompt}"
+        **Диалог для анализа:**
+        ---
+        ${historyText}
+        Пользователь: ${userAnswersPrompt}
+        ---
         
         Верни ответ СТРОГО в формате JSON.
         `;
