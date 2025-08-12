@@ -100,7 +100,7 @@ export class AiController {
         return res.status(500).json({ aiResponse: "Внутренняя ошибка: отсутствует имя файла." });
       }
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(response.fileName)}.docx`);
+      res.setHeader('Content-Disposition', `attachment; filename="${response.fileName}"`);
       return res.send(response.content);
     } else {
       // Отправка JSON (вопросы или уточнения)
