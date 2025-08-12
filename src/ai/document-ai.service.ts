@@ -179,7 +179,7 @@ export class DocumentAiService implements OnModuleInit {
 
         try {
             const result = (await this.generateWithRetry(prompt)).trim().toLowerCase();
-    
+
             if (result === 'kz') {
                 return 'kz';
             }
@@ -233,17 +233,17 @@ export class DocumentAiService implements OnModuleInit {
             if (user.doc_chat_request_id === 'cancel_pending') {
                 // Используем AI, чтобы понять ответ пользователя (согласен или нет)
                 const confirmationPrompt = `
-                  Проанализируй ответ пользователя. Он выражает согласие/подтверждение?
-                  Ответ пользователя: "${prompt}"
-                  Верни только одно слово: "иә" если согласие, "жоқ" если несогласие.
-                `;
+                Проанализируй ответ пользователя. Он выражает согласие/подтверждение?
+                Ответ пользователя: "${prompt}"
+                Верни только одно слово: "да" если согласие, "нет" если несогласие.
+              `;
                 const confirmationResult = await this.chatAiService.generateWithRetry(confirmationPrompt);
 
                 // Пользователь ПОДТВЕРДИЛ отмену
-                if (confirmationResult.toLowerCase().includes('иә')) {
+                if (confirmationResult.toLowerCase().includes('да')) {
                     await this.usersService.resetDocChatState(userId);
                     // Возвращаемся к выбору документа. Язык ответа соответствует языку ДОКУМЕНТА.
-                    return this.handleClarification({ intent: 'clarification_needed' }, language);
+                    return this.handleClarification({ intent: 'clarification_needed' }, userMessageLanguage);
                 }
                 // Пользователь ПЕРЕДУМАЛ отменять
                 else {
