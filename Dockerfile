@@ -17,6 +17,7 @@ RUN apk add --no-cache build-base g++ cairo-dev jpeg-dev pango-dev giflib-dev py
 COPY package*.json ./
 RUN npm install
 
+
 # =============================================================
 # Этап 2: "Builder" - Сборка проекта
 # =============================================================
