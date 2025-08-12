@@ -21,7 +21,7 @@ import { GeneratedDocument } from 'src/documents/entities/generated-document.ent
   // Регистрируем сервисы, которые принадлежат этому модулю
   providers: [PdfService, ChatAiService, DocumentAiService],
   // Экспортируем AiService, чтобы его можно было использовать в других частях приложения (если потребуется)
-  exports: [],
+  exports: [ChatAiService],
   // Регистрируем контроллер этого модуля
   controllers: [AiController],
 })

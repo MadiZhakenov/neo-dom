@@ -192,11 +192,15 @@ export class DocumentAiService implements OnModuleInit {
             // --- ИЗМЕНЕНИЕ: Используем старый мощный extractDataForDocx, но с фокусом на одном вопросе ---
             // Он будет анализировать ВСЮ историю, но искать ответ на КОНКРЕТНЫЙ вопрос
             const extractionResult = await this.extractDataForDocx(prompt, user.doc_chat_template, userId, currentField.question, currentField.tag);
+            // --- НАЧАЛО ФИНАЛЬНОЙ ЛОГИКИ ОБРАБОТКИ ОТМЕНЫ ---
 
-            // --- НАЧАЛО НОВОЙ ЛОГИКИ ОБРАБОТКИ ОТМЕНЫ ---
+            // Определяем язык ПОСЛЕДНЕГО сообщения пользователя
+            const userMessageLanguage = this.chatAiService.detectLanguage(prompt);
+
+            // 1. Пользователь инициирует отмену
             if (extractionResult.intent === 'cancel') {
-                const message = language === 'kz'
-                    ? 'Құжатты толтыруды тоқтатқыңыз келетініне сенімдісіз бе? (иә/жоқ)'
+                const message = userMessageLanguage === 'kz'
+                    ? 'Сіз құжатты толтыруды тоқтатқыңыз келетініне сенімдісіз бе? (иә/жоқ)'
                     : 'Вы уверены, что хотите отменить заполнение документа? (да/нет)';
 
                 // Сохраняем "запрос на отмену" во временном состоянии
@@ -205,22 +209,26 @@ export class DocumentAiService implements OnModuleInit {
                 return { type: 'chat', content: { action: 'clarification', message } };
             }
 
-            // Если пользователь подтверждает отмену
-            if (user.doc_chat_request_id === 'cancel_pending' && ['иә', 'да', 'yes'].includes(prompt.toLowerCase())) {
-                await this.usersService.resetDocChatState(userId);
-                return this.handleClarification({ intent: 'clarification_needed' }, language);
-            }
-
-            // Если пользователь передумал отменять
+            // 2. Пользователь отвечает на вопрос об отмене
             if (user.doc_chat_request_id === 'cancel_pending') {
-                await this.usersService.updateDocChatState(userId, currentIndex, user.doc_chat_pending_data); // Убираем флаг cancel_pending
-                // и повторяем предыдущий вопрос
-                const message = currentField.example
-                    ? `${currentField.question}\n${currentField.example}`
-                    : currentField.question;
-                return { type: 'chat', content: { action: 'collect_data', message } };
+                // Пользователь ПОДТВЕРДИЛ отмену на любом языке
+                if (['иә', 'да', 'yes'].includes(prompt.toLowerCase().trim())) {
+                    await this.usersService.resetDocChatState(userId);
+                    // Используем язык последнего сообщения для ответа
+                    return this.handleClarification({ intent: 'clarification_needed' }, userMessageLanguage);
+                }
+                // Пользователь ОТКАЗАЛСЯ от отмены
+                else {
+                    // Убираем флаг cancel_pending
+                    await this.usersService.updateDocChatState(userId, currentIndex, user.doc_chat_pending_data);
+                    // и повторяем предыдущий вопрос
+                    const message = currentField.example
+                        ? `${currentField.question}\n${currentField.example}`
+                        : currentField.question;
+                    return { type: 'chat', content: { action: 'collect_data', message } };
+                }
             }
-            // --- КОНЕЦ НОВОЙ ЛОГИКИ ОБРАБОТКИ ОТМЕНЫ ---
+            // --- КОНЕЦ ФИНАЛЬНОЙ ЛОГИКИ ОБРАБОТКИ ОТМЕНЫ ---
 
             if (extractionResult.error) {
                 const retryMessage = `${extractionResult.error}\n\n${currentField.question}`;
@@ -235,8 +243,8 @@ export class DocumentAiService implements OnModuleInit {
                 await this.usersService.updateDocChatState(userId, nextIndex, newData);
                 const nextField = allFields[nextIndex];
                 const message = (nextField.example && !nextField.question.includes(nextField.example))
-                ? `${nextField.question}\n${nextField.example}`
-                : nextField.question;
+                    ? `${nextField.question}\n${nextField.example}`
+                    : nextField.question;
                 return { type: 'chat', content: { action: 'collect_data', message: message } };
             } else {
                 let finalData = newData;
@@ -345,11 +353,11 @@ export class DocumentAiService implements OnModuleInit {
         const header = language === 'kz'
             ? "Міне, қолжетімді құжаттар тізімі:\n"
             : "Вот список доступных документов:\n";
-        
+
         const templateList = this._templateNames
             .map(t => `\n- ${t.humanName}`) // Используем дефис для лучшей читаемости
             .join('');
-        
+
         return header + templateList;
     }
     private async getQuestionsForTemplate(templateName: string): Promise<any> {
@@ -553,12 +561,12 @@ export class DocumentAiService implements OnModuleInit {
         const normalizedTemplateName = templateName.toLowerCase();
         const templateInfo = TEMPLATES_REGISTRY[normalizedTemplateName];
         if (!templateInfo) throw new Error(`Шаблон "${templateName}" не настроен.`);
-        
+
         const element = templateInfo.tags_in_template.find(t => (typeof t === 'string' && t === currentTag) || (typeof t === 'object' && t.loopName === currentTag));
         const language = templateInfo.language;
-    
+
         // --- НАЧАЛО МОДИФИЦИРОВАННОГО ПРОМПТА ---
-    
+
         let prompt = `
           Твоя задача — проанализировать "Ответ пользователя" и вернуть результат в виде JSON. Действуй строго по плану.
     
@@ -572,7 +580,7 @@ export class DocumentAiService implements OnModuleInit {
               \`{"intent": "cancel"}\`
           
           2.  **ИЗВЛЕЧЕНИЕ ДАННЫХ:** Если это не отмена, попробуй извлечь данные.`;
-    
+
         if (typeof element === 'object' && element.loopName) {
             // Дополняем промпт инструкциями для циклов
             prompt += `
@@ -587,14 +595,14 @@ export class DocumentAiService implements OnModuleInit {
               *   **Результат:** \`{"data": {"${currentTag}": "извлеченное значение"}}\`
             `;
         }
-    
+
         prompt += `
           3.  **ПРОВЕРКА НА РЕЛЕВАНТНОСТЬ:** Если ответ не является отменой и из него невозможно извлечь осмысленные данные (ответ не по теме), верни JSON с сообщением об ошибке **на ${language} языке**.
               *   **Результат:** \`{"error": "Вежливое сообщение об ошибке на ${language} языке, просящее повторить ввод."}\`
     
           **ВАЖНО:** Возвращай только JSON, без лишних слов и объяснений.`;
         // --- КОНЕЦ МОДИФИЦИРОВАННОГО ПРОМПТА ---
-    
+
         try {
             const rawResponse = await this.generateWithRetry(prompt);
             const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
