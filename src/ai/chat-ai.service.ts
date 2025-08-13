@@ -66,6 +66,54 @@ export class ChatAiService implements OnModuleInit {
         }
         console.log(`[AI Service] Загружено и провалидировано ${this._templateNames.length} шаблонов.`);
     }
+
+    private async getRelevantDocs(question: string, topK: number = 7): Promise<Document[]> {
+        if (!this.vectorStore) return [];
+
+        // 1. Векторный поиск как основная стратегия
+        let relevantDocs = await this.vectorStore.similaritySearch(question, topK);
+
+        // 2. Расширение контекста соседними чанками (±2)
+        let expandedDocs: Document[] = [];
+        for (const doc of relevantDocs) {
+            const idx = this.allDocs.findIndex(d => d.pageContent === doc.pageContent);
+            if (idx !== -1) {
+                for (let offset = -2; offset <= 2; offset++) {
+                    const neighborIdx = idx + offset;
+                    if (this.allDocs[neighborIdx] && this.allDocs[neighborIdx].metadata.source === doc.metadata.source) {
+                        expandedDocs.push(this.allDocs[neighborIdx]);
+                    }
+                }
+            }
+        }
+
+        // 3. Keyword Fallback: если векторный поиск слаб, ищем по словам
+        if (expandedDocs.length < 5) {
+            const lowerQ = question.toLowerCase();
+            const keywordMatches = this.allDocs.filter(doc =>
+                lowerQ.split(/\s+/).some(word =>
+                    word.length > 3 && doc.pageContent.toLowerCase().includes(word)
+                )
+            );
+            expandedDocs.push(...keywordMatches.slice(0, 10)); // Добавляем до 10 совпадений
+        }
+
+        // 4. Always Include: если в вопросе упомянуто имя файла
+        const directMatchSource = this.allDocs
+            .map(d => d.metadata.source as string)
+            .find(source => question.toLowerCase().includes(source.toLowerCase().replace('.pdf.txt', '')));
+
+        if (directMatchSource) {
+            console.log(`[AI Service] Обнаружено прямое упоминание файла: ${directMatchSource}`);
+            const directMatchDocs = this.allDocs.filter(doc => doc.metadata.source === directMatchSource);
+            expandedDocs.push(...directMatchDocs);
+        }
+
+        // 5. Удаляем дубликаты и возвращаем результат
+        return [...new Map(expandedDocs.map(d => [d.pageContent, d])).values()];
+    }
+
+
     /**
       * Создает векторную базу знаний из текстовых файлов в папке .pdf-cache.
       * Эти векторы используются для поиска релевантной информации при ответах на вопросы (RAG).
@@ -74,46 +122,43 @@ export class ChatAiService implements OnModuleInit {
     private async initializeVectorStore(apiKey: string) {
         console.log('[AI Service] Initializing Vector Store...');
         try {
-            const cacheDir = path.join(process.cwd(), '.pdf-cache');
-            console.log(`[AI Service] Looking for cache in: ${cacheDir}`);
-
-            if (!fs.existsSync(cacheDir)) {
-                console.error('[AI Service] FATAL: .pdf-cache directory not found. RAG will not work.');
+            const textCacheDir = path.join(process.cwd(), '.pdf-cache');
+            if (!fs.existsSync(textCacheDir)) {
+                console.error('[AI Service] FATAL: .pdf-cache directory not found.');
                 return;
             }
 
-            const fileNames = fs.readdirSync(cacheDir);
+            const fileNames = fs.readdirSync(textCacheDir).filter(f => f.endsWith('.txt'));
             if (fileNames.length === 0) {
-                console.error('[AI Service] FATAL: .pdf-cache directory is empty. RAG will not work.');
+                console.error('[AI Service] FATAL: .pdf-cache is empty.');
                 return;
             }
-
-            console.log(`[AI Service] Found ${fileNames.length} files in .pdf-cache. Creating embeddings...`);
 
             const documents = fileNames.map(fileName => ({
-                pageContent: fs.readFileSync(path.join(cacheDir, fileName), 'utf-8'),
-                metadata: { source: fileName.replace('.txt', '') },
+                pageContent: fs.readFileSync(path.join(textCacheDir, fileName), 'utf-8'),
+                metadata: { source: fileName },
             }));
+
             const splitter = new RecursiveCharacterTextSplitter({
                 chunkSize: 1000,
                 chunkOverlap: 350
             });
+            this.allDocs = await splitter.splitDocuments(documents);
 
-            const docs = await splitter.splitDocuments(documents);
+            const embeddings = new GoogleGenerativeAIEmbeddings({
+                apiKey,
+                model: "embedding-001",
+                taskType: TaskType.RETRIEVAL_DOCUMENT
+            });
 
-            this.allDocs = docs;
-
-            const embeddings = new GoogleGenerativeAIEmbeddings({ apiKey, model: "embedding-001", taskType: TaskType.RETRIEVAL_DOCUMENT });
+            console.log(`[AI Service] Creating new vector store with ${this.allDocs.length} chunks...`);
             this.vectorStore = await MemoryVectorStore.fromDocuments(this.allDocs, embeddings);
-
-            console.log(`[AI Service] Vector Store created successfully with ${docs.length} document chunks.`);
+            console.log('[AI Service] Vector Store created successfully.');
 
         } catch (error) {
             console.error('[AI Service] CRITICAL ERROR during Vector Store initialization:', error);
         }
     }
-
-
     // ДОБАВЬТЕ ЭТОТ НОВЫЙ МЕТОД В КЛАСС ChatAiService
 
     /**
@@ -266,60 +311,13 @@ export class ChatAiService implements OnModuleInit {
             await this.chatHistoryService.addMessageToHistory(userId, prompt, message, ChatType.GENERAL);
             return message;
         }
-        // --- НАЧАЛО НОВОЙ, МНОГОСТУПЕНЧАТОЙ ЛОГИКИ ПОИСКА ---
+        const uniqueDocs = await this.getRelevantDocs(prompt, 7);
+
         let context = 'НЕТ РЕЛЕВАНТНЫХ ДАННЫХ';
-        if (this.vectorStore) {
-            // 1. Multi-step RAG: Сначала "AI-помощник" определяет релевантные файлы
-            const sourceFiles = await this._getRelevantSourceFiles(prompt);
-
-            let docsToSearch = this.allDocs;
-            if (sourceFiles.length > 0) {
-                console.log(`[AI Service] Целевой поиск по файлам: ${sourceFiles.join(', ')}`);
-                docsToSearch = this.allDocs.filter(d => sourceFiles.includes(d.metadata.source));
-            } else {
-                console.log('[AI Service] AI-фильтр не выбрал файлы. Общий поиск.');
-            }
-
-            // 2. Векторный поиск по суженному (или полному) списку документов
-            // Создаем временное хранилище только из нужных документов для точности и скорости
-            const tempVectorStore = await MemoryVectorStore.fromDocuments(
-                docsToSearch,
-                this.vectorStore.embeddings
-            );
-            let relevantDocs = await tempVectorStore.similaritySearch(prompt, 15);
-
-            // 3. Умный Fallback: Если векторный поиск дал мало результатов, подключаем поиск по ключевым словам
-            if (relevantDocs.length < 3) {
-                console.log('[AI Service] Векторный поиск дал мало результатов. Включаю поиск по ключевым словам.');
-                const keyword = prompt.split(' ')[0]; // Берем первое слово как ключ
-                const keywordMatches = docsToSearch.filter(d =>
-                    d.pageContent.toLowerCase().includes(keyword.toLowerCase())
-                );
-                // Объединяем результаты и удаляем дубликаты
-                const combinedDocs = [...relevantDocs, ...keywordMatches];
-                relevantDocs = [...new Map(combinedDocs.map(d => [d.pageContent, d])).values()];
-            }
-
-            // 4. Динамическое расширение контекста: подгружаем соседние чанки (±2)
-            let expandedDocs: Document[] = [];
-            for (const doc of relevantDocs) {
-                const idx = this.allDocs.findIndex(d => d.pageContent === doc.pageContent);
-                if (idx !== -1) {
-                    for (let offset = -2; offset <= 2; offset++) {
-                        const neighborIdx = idx + offset;
-                        // Проверяем границы и что сосед из того же файла
-                        if (this.allDocs[neighborIdx] && this.allDocs[neighborIdx].metadata.source === doc.metadata.source) {
-                            expandedDocs.push(this.allDocs[neighborIdx]);
-                        }
-                    }
-                }
-            }
-
-            const uniqueDocs = [...new Map(expandedDocs.map(d => [d.pageContent, d])).values()];
-
-            if (uniqueDocs.length > 0) {
-                context = uniqueDocs.map(doc => `ИЗ ДОКУМЕНТА ${doc.metadata.source}:\n${doc.pageContent}`).join('\n\n---\n\n');
-            }
+        if (uniqueDocs.length > 0) {
+            context = uniqueDocs
+                .map(doc => `ИЗ ДОКУМЕНТА ${doc.metadata.source}:\n${doc.pageContent}`)
+                .join('\n\n---\n\n');
         }
 
         // Ограничиваем финальный размер контекста
@@ -327,7 +325,6 @@ export class ChatAiService implements OnModuleInit {
         if (context.length > maxContextLength) {
             context = context.slice(0, maxContextLength) + '\n\n... (контекст был сокращен для оптимизации)';
         }
-        // --- КОНЕЦ НОВОЙ ЛОГИКИ ПОИСКА ---
 
         const finalPrompt = `
         Ты - "NeoOSI", экспертный AI-ассистент, специализирующийся на вопросах ОСИ и ЖКХ в Казахстане. Твоя главная задача — давать точные и полезные ответы, основываясь на предоставленных правилах.
