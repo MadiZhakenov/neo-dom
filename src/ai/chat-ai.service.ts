@@ -1,6 +1,5 @@
 
 // src\ai\chat-ai.service.ts
-import { Document } from 'langchain/document'
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI, Content, TaskType } from '@google/generative-ai';
@@ -12,6 +11,7 @@ import { RecursiveCharacterTextSplitter } from 'langchain/text_splitter';
 import { ChatHistoryService } from '../chat/history/history.service';
 import { TEMPLATES_REGISTRY } from './templates.registry';
 import { ChatType } from '../chat/entities/chat-message.entity';
+import { Document } from 'langchain/document';
 
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
@@ -21,6 +21,7 @@ export class ChatAiService implements OnModuleInit {
     private fallbackModel: any;
     private vectorStore: MemoryVectorStore;
     private _templateNames: { fileName: string; humanName: string }[];
+    private allDocs: Document[] = [];
     private currentLanguage: 'ru' | 'kz' = 'ru';
 
     constructor(
@@ -95,13 +96,15 @@ export class ChatAiService implements OnModuleInit {
             }));
             const splitter = new RecursiveCharacterTextSplitter({
                 chunkSize: 1000,
-                chunkOverlap: 200
+                chunkOverlap: 350
             });
 
             const docs = await splitter.splitDocuments(documents);
 
+            this.allDocs = docs;
+
             const embeddings = new GoogleGenerativeAIEmbeddings({ apiKey, model: "embedding-001", taskType: TaskType.RETRIEVAL_DOCUMENT });
-            this.vectorStore = await MemoryVectorStore.fromDocuments(docs, embeddings);
+            this.vectorStore = await MemoryVectorStore.fromDocuments(this.allDocs, embeddings);
 
             console.log(`[AI Service] Vector Store created successfully with ${docs.length} document chunks.`);
 
@@ -270,25 +273,39 @@ export class ChatAiService implements OnModuleInit {
         // --- НАЧАЛО ФИНАЛЬНОЙ ВЕРСИИ ПОИСКА ---
         let context = 'НЕТ РЕЛЕВАНТНЫХ ДАННЫХ';
         if (this.vectorStore) {
-            // 1. "AI-Паралегал" выбирает нужные файлы
-            const filesToSearch = await this._getRelevantSourceFiles(prompt);
+            // 1. Сначала делаем обычный поиск, чтобы найти самые релевантные "центральные" чанки
+            let relevantDocs = await this.vectorStore.similaritySearch(prompt, 7); // Ищем чуть меньше, т.к. будем расширять
 
-            let relevantDocs: Document[] = [];
+            // 2. Реализуем подгрузку соседних чанков для полноты контекста
+            let expandedDocs: Document[] = [];
+            for (const doc of relevantDocs) {
+                expandedDocs.push(doc); // Добавляем сам найденный документ
 
-            if (filesToSearch && filesToSearch.length > 0) {
-                console.log(`[AI Service] Целевой поиск по файлам: ${filesToSearch.join(', ')}`);
-                // 2. Ищем только в выбранных файлах
-                const filter = (doc: Document) => filesToSearch.includes(doc.metadata.source);
-                relevantDocs = await this.vectorStore.similaritySearch(prompt, 15, filter);
-            } else {
-                console.log(`[AI Service] AI-фильтр не сработал. Общий поиск по всем документам.`);
-                // 3. Fallback: если "паралегал" не справился, ищем по всей базе
-                relevantDocs = await this.vectorStore.similaritySearch(prompt, 10);
+                const idx = this.allDocs.findIndex(d => d.pageContent === doc.pageContent && d.metadata.source === doc.metadata.source);
+
+                if (idx !== -1) {
+                    // Проверяем и добавляем предыдущий чанк, если он из того же файла
+                    if (this.allDocs[idx - 1] && this.allDocs[idx - 1].metadata.source === doc.metadata.source) {
+                        expandedDocs.push(this.allDocs[idx - 1]);
+                    }
+                    // Проверяем и добавляем следующий чанк, если он из того же файла
+                    if (this.allDocs[idx + 1] && this.allDocs[idx + 1].metadata.source === doc.metadata.source) {
+                        expandedDocs.push(this.allDocs[idx + 1]);
+                    }
+                }
             }
+            // Удаляем дубликаты, которые могли появиться
+            const uniqueDocs = [...new Map(expandedDocs.map(d => [d.pageContent, d])).values()];
 
-            if (relevantDocs.length > 0) {
-                context = relevantDocs.map(doc => `ИЗ ДОКУМЕНТА ${doc.metadata.source}:\n${doc.pageContent}`).join('\n\n---\n\n');
+            if (uniqueDocs.length > 0) {
+                context = uniqueDocs.map(doc => `ИЗ ДОКУМЕНТА ${doc.metadata.source}:\n${doc.pageContent}`).join('\n\n---\n\n');
             }
+        }
+
+        // 3. Ограничиваем общий размер контекста
+        const maxContextLength = 8000;
+        if (context.length > maxContextLength) {
+            context = context.slice(0, maxContextLength) + '\n\n... (контекст был сокращен для оптимизации)';
         }
         // --- КОНЕЦ ФИНАЛЬНОЙ ВЕРСИИ ПОИСКА ---
         const finalPrompt = `
