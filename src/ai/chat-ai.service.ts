@@ -110,83 +110,55 @@ export class ChatAiService implements OnModuleInit {
         }
     }
 
+
+    // ДОБАВЬТЕ ЭТОТ НОВЫЙ МЕТОД В КЛАСС ChatAiService
+
     /**
- * Анализирует вопрос пользователя и определяет, в каких файлах нужно искать ответ.
- * @param question - Исходный вопрос пользователя.
- * @returns Имя файла для фильтрации или null, если определить не удалось.
- */
-    private async _createSearchFilter(question: string): Promise<string | null> {
-        const fileList = this._templateNames.map(t => t.fileName.replace('.docx', '.pdf.txt')).join('\n');
+     * Анализирует вопрос пользователя и определяет список наиболее релевантных файлов для поиска.
+     * @param question - Исходный вопрос пользователя.
+     * @returns Массив имен файлов для поиска.
+     */
+    private async _getRelevantSourceFiles(question: string): Promise<string[]> {
+        // Получаем список всех доступных текстовых файлов из кэша
+        const cacheDir = path.join(process.cwd(), '.pdf-cache');
+        if (!fs.existsSync(cacheDir)) return [];
+        const fileList = fs.readdirSync(cacheDir).join('\n');
 
         const prompt = `
-      Твоя задача — проанализировать "Вопрос пользователя" и определить, в каком ОДНОМ документе из "Списка файлов" наиболее вероятно содержится ответ.
-      Если вопрос общий и может касаться нескольких документов, выбери наиболее релевантный (например, для определений — это стандарты или законы).
-      Если не можешь выбрать один файл, верни "null".
+      Твоя задача — выступить в роли помощника-юриста. Проанализируй "Вопрос пользователя" и, основываясь на "Списке доступных документов", определи, какие 2-3 файла наиболее важны для поиска точного ответа.
+      Фокусируйся на ключевых словах, номерах стандартов и законов.
+      Верни свой ответ в виде JSON-массива строк с именами файлов. Если не уверен, верни пустой массив [].
 
-      Верни ТОЛЬКО имя файла или слово "null".
+      Пример:
+      Вопрос пользователя: "В чем разница между текущим и капитальным ремонтом?"
+      Ответ:
+      [
+        "СТ РК 2966-2023.pdf.txt",
+        "СТ РК 2864-2016.pdf.txt"
+      ]
 
-      **Список файлов:**
+      **Список доступных документов:**
       ${fileList}
 
       **Вопрос пользователя:** "${question}"
 
-      **Ответ:**
-    `;
-
-        try {
-            const response = (await this.generateWithRetry(prompt)).trim();
-            if (response && response.toLowerCase() !== 'null') {
-                return response;
-            }
-            return null;
-        } catch (error) {
-            console.error("Ошибка при создании поискового фильтра:", error);
-            return null; // В случае ошибки ищем по всем документам
-        }
-    }
-
-
-    /**
-     * Генерирует несколько вариантов поисковых запросов на основе одного вопроса пользователя.
-     * @param question - Исходный вопрос пользователя.
-     * @returns Массив строк с альтернативными запросами.
-     */
-    private async _generateSearchQueries(question: string): Promise<string[]> {
-        const prompt = `
-      Ты — AI-ассистент, помогающий в поиске информации. Твоя задача — взять "Исходный вопрос" и сгенерировать 3-4 альтернативных поисковых запроса, которые могут помочь найти наиболее релевантную информацию в базе юридических документов.
-      Фокусируйся на ключевых терминах, синонимах и возможных формулировках из официальных документов.
-      Верни запросы в виде JSON-массива строк.
-
-      Пример:
-      Исходный вопрос: "Что такое ОСИ?"
-      Ответ:
-      [
-        "определение термина объединение собственников имущества",
-        "юридический статус и функции ОСИ",
-        "закон о жилищных отношениях объединение собственников"
-      ]
-
-      Исходный вопрос: "${question}"
-      Ответ:
+      **Ответ (ТОЛЬКО JSON-массив):**
     `;
 
         try {
             const response = await this.generateWithRetry(prompt);
-            // Извлекаем JSON-массив из ответа
-            const match = response.match(/\[([^\]]*)\]/);
+            // Более надежный парсинг JSON из ответа модели
+            const match = response.match(/\[[\s\S]*\]/);
             if (match) {
-                // Безопасно парсим JSON
-                const queries = JSON.parse(match[0].replace(/'/g, '"'));
-                // Добавляем исходный вопрос в список на всякий случай
-                queries.push(question);
-                return queries;
+                return JSON.parse(match[0]);
             }
-            return [question]; // Fallback
+            return []; // Если JSON не найден, возвращаем пустой массив
         } catch (error) {
-            console.error("Ошибка при генерации поисковых запросов:", error);
-            return [question]; // Возвращаем исходный вопрос в случае ошибки
+            console.error("Ошибка при выборе файлов-источников:", error);
+            return []; // В случае ошибки возвращаем пустой массив, чтобы сработал fallback
         }
     }
+
 
     /**
      * Определяет язык текста (русский или казахский) по наличию специфических символов или common-слов.
@@ -295,29 +267,30 @@ export class ChatAiService implements OnModuleInit {
             return message;
         }
 
+        // --- НАЧАЛО ФИНАЛЬНОЙ ВЕРСИИ ПОИСКА ---
         let context = 'НЕТ РЕЛЕВАНТНЫХ ДАННЫХ';
         if (this.vectorStore) {
-            // 1. Пытаемся определить конкретный файл для поиска
-            const filterFile = await this._createSearchFilter(prompt);
-    
-            // --- ИСПРАВЛЕНИЕ №1: Явно указываем тип для переменной ---
+            // 1. "AI-Паралегал" выбирает нужные файлы
+            const filesToSearch = await this._getRelevantSourceFiles(prompt);
+
             let relevantDocs: Document[] = [];
-    
-            if (filterFile) {
-                console.log(`[AI Service] Поиск с фильтром по файлу: ${filterFile}`);
-                // --- ИСПРАВЛЕНИЕ №2: Используем правильный синтаксис фильтра (функцию) ---
-                const filterFunction = (doc: Document) => doc.metadata.source === filterFile;
-                relevantDocs = await this.vectorStore.similaritySearch(prompt, 15, filterFunction);
-    
+
+            if (filesToSearch && filesToSearch.length > 0) {
+                console.log(`[AI Service] Целевой поиск по файлам: ${filesToSearch.join(', ')}`);
+                // 2. Ищем только в выбранных файлах
+                const filter = (doc: Document) => filesToSearch.includes(doc.metadata.source);
+                relevantDocs = await this.vectorStore.similaritySearch(prompt, 15, filter);
             } else {
-                console.log(`[AI Service] Фильтр не определен. Поиск по всем документам.`);
-                relevantDocs = await this.vectorStore.similaritySearch(prompt, 15);
+                console.log(`[AI Service] AI-фильтр не сработал. Общий поиск по всем документам.`);
+                // 3. Fallback: если "паралегал" не справился, ищем по всей базе
+                relevantDocs = await this.vectorStore.similaritySearch(prompt, 10);
             }
-    
+
             if (relevantDocs.length > 0) {
                 context = relevantDocs.map(doc => `ИЗ ДОКУМЕНТА ${doc.metadata.source}:\n${doc.pageContent}`).join('\n\n---\n\n');
             }
         }
+        // --- КОНЕЦ ФИНАЛЬНОЙ ВЕРСИИ ПОИСКА ---
         const finalPrompt = `
         Ты - "NeoOSI", экспертный AI-ассистент, специализирующийся на вопросах ОСИ и ЖКХ в Казахстане. Твоя главная задача — давать точные и полезные ответы, основываясь на предоставленных правилах.
         
