@@ -1,4 +1,6 @@
+
 // src\ai\chat-ai.service.ts
+import { Document } from 'langchain/document'
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI, Content, TaskType } from '@google/generative-ai';
@@ -107,6 +109,42 @@ export class ChatAiService implements OnModuleInit {
             console.error('[AI Service] CRITICAL ERROR during Vector Store initialization:', error);
         }
     }
+
+    /**
+ * Анализирует вопрос пользователя и определяет, в каких файлах нужно искать ответ.
+ * @param question - Исходный вопрос пользователя.
+ * @returns Имя файла для фильтрации или null, если определить не удалось.
+ */
+    private async _createSearchFilter(question: string): Promise<string | null> {
+        const fileList = this._templateNames.map(t => t.fileName.replace('.docx', '.pdf.txt')).join('\n');
+
+        const prompt = `
+      Твоя задача — проанализировать "Вопрос пользователя" и определить, в каком ОДНОМ документе из "Списка файлов" наиболее вероятно содержится ответ.
+      Если вопрос общий и может касаться нескольких документов, выбери наиболее релевантный (например, для определений — это стандарты или законы).
+      Если не можешь выбрать один файл, верни "null".
+
+      Верни ТОЛЬКО имя файла или слово "null".
+
+      **Список файлов:**
+      ${fileList}
+
+      **Вопрос пользователя:** "${question}"
+
+      **Ответ:**
+    `;
+
+        try {
+            const response = (await this.generateWithRetry(prompt)).trim();
+            if (response && response.toLowerCase() !== 'null') {
+                return response;
+            }
+            return null;
+        } catch (error) {
+            console.error("Ошибка при создании поискового фильтра:", error);
+            return null; // В случае ошибки ищем по всем документам
+        }
+    }
+
 
     /**
      * Генерирует несколько вариантов поисковых запросов на основе одного вопроса пользователя.
@@ -258,24 +296,24 @@ export class ChatAiService implements OnModuleInit {
         }
 
         let context = 'НЕТ РЕЛЕВАНТНЫХ ДАННЫХ';
-
         if (this.vectorStore) {
-            // 1. Генерируем несколько поисковых запросов
-            const searchQueries = await this._generateSearchQueries(prompt);
-
-            // 2. Ищем документы по каждому запросу
-            const searchResults = await Promise.all(
-                searchQueries.map(query => this.vectorStore.similaritySearch(query, 5)) // Ищем по 5 док. на каждый запрос
-            );
-
-            // 3. Собираем все уникальные документы вместе
-            const uniqueDocs = new Map();
-            searchResults.flat().forEach(doc => {
-                uniqueDocs.set(doc.pageContent, doc);
-            });
-
-            const relevantDocs = Array.from(uniqueDocs.values());
-
+            // 1. Пытаемся определить конкретный файл для поиска
+            const filterFile = await this._createSearchFilter(prompt);
+    
+            // --- ИСПРАВЛЕНИЕ №1: Явно указываем тип для переменной ---
+            let relevantDocs: Document[] = [];
+    
+            if (filterFile) {
+                console.log(`[AI Service] Поиск с фильтром по файлу: ${filterFile}`);
+                // --- ИСПРАВЛЕНИЕ №2: Используем правильный синтаксис фильтра (функцию) ---
+                const filterFunction = (doc: Document) => doc.metadata.source === filterFile;
+                relevantDocs = await this.vectorStore.similaritySearch(prompt, 15, filterFunction);
+    
+            } else {
+                console.log(`[AI Service] Фильтр не определен. Поиск по всем документам.`);
+                relevantDocs = await this.vectorStore.similaritySearch(prompt, 15);
+            }
+    
             if (relevantDocs.length > 0) {
                 context = relevantDocs.map(doc => `ИЗ ДОКУМЕНТА ${doc.metadata.source}:\n${doc.pageContent}`).join('\n\n---\n\n');
             }
