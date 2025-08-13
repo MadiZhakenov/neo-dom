@@ -122,46 +122,43 @@ export class ChatAiService implements OnModuleInit {
      * @returns Массив имен файлов для поиска.
      */
     private async _getRelevantSourceFiles(question: string): Promise<string[]> {
-        // Получаем список всех доступных текстовых файлов из кэша
-        const cacheDir = path.join(process.cwd(), '.pdf-cache');
-        if (!fs.existsSync(cacheDir)) return [];
-        const fileList = fs.readdirSync(cacheDir).join('\n');
+        const fileList = this.allDocs.map(d => d.metadata.source)
+            .filter((value, index, self) => self.indexOf(value) === index) // Оставляем только уникальные имена
+            .join('\n');
 
         const prompt = `
-      Твоя задача — выступить в роли помощника-юриста. Проанализируй "Вопрос пользователя" и, основываясь на "Списке доступных документов", определи, какие 2-3 файла наиболее важны для поиска точного ответа.
-      Фокусируйся на ключевых словах, номерах стандартов и законов.
-      Верни свой ответ в виде JSON-массива строк с именами файлов. Если не уверен, верни пустой массив [].
-
-      Пример:
-      Вопрос пользователя: "В чем разница между текущим и капитальным ремонтом?"
-      Ответ:
-      [
-        "СТ РК 2966-2023.pdf.txt",
-        "СТ РК 2864-2016.pdf.txt"
-      ]
-
-      **Список доступных документов:**
-      ${fileList}
-
-      **Вопрос пользователя:** "${question}"
-
-      **Ответ (ТОЛЬКО JSON-массив):**
-    `;
+          Твоя задача — выступить в роли помощника-юриста. Проанализируй "Вопрос пользователя" и, основываясь на "Списке доступных документов", определи, какие 2-3 файла наиболее важны для поиска точного ответа.
+          Фокусируйся на ключевых словах, номерах стандартов ("СТ РК") и законов.
+          Верни свой ответ в виде JSON-массива строк с точными именами файлов. Если не уверен, верни пустой массив [].
+    
+          Пример:
+          Вопрос пользователя: "В чем разница между текущим и капитальным ремонтом?"
+          Ответ:
+          [
+            "СТ РК 2966-2023.pdf.txt",
+            "СТ РК 2864-2016.pdf.txt"
+          ]
+    
+          **Список доступных документов:**
+          ${fileList}
+    
+          **Вопрос пользователя:** "${question}"
+    
+          **Ответ (ТОЛЬКО JSON-массив):**
+        `;
 
         try {
             const response = await this.generateWithRetry(prompt);
-            // Более надежный парсинг JSON из ответа модели
-            const match = response.match(/\[[\s\S]*\]/);
+            const match = response.match(/\[[\s\S]*?\]/);
             if (match) {
-                return JSON.parse(match[0]);
+                return JSON.parse(match[0].replace(/'/g, '"'));
             }
-            return []; // Если JSON не найден, возвращаем пустой массив
+            return [];
         } catch (error) {
             console.error("Ошибка при выборе файлов-источников:", error);
-            return []; // В случае ошибки возвращаем пустой массив, чтобы сработал fallback
+            return [];
         }
     }
-
 
     /**
      * Определяет язык текста (русский или казахский) по наличию специфических символов или common-слов.
@@ -269,32 +266,55 @@ export class ChatAiService implements OnModuleInit {
             await this.chatHistoryService.addMessageToHistory(userId, prompt, message, ChatType.GENERAL);
             return message;
         }
-
-        // --- НАЧАЛО ФИНАЛЬНОЙ ВЕРСИИ ПОИСКА ---
+        // --- НАЧАЛО НОВОЙ, МНОГОСТУПЕНЧАТОЙ ЛОГИКИ ПОИСКА ---
         let context = 'НЕТ РЕЛЕВАНТНЫХ ДАННЫХ';
         if (this.vectorStore) {
-            // 1. Сначала делаем обычный поиск, чтобы найти самые релевантные "центральные" чанки
-            let relevantDocs = await this.vectorStore.similaritySearch(prompt, 7); // Ищем чуть меньше, т.к. будем расширять
+            // 1. Multi-step RAG: Сначала "AI-помощник" определяет релевантные файлы
+            const sourceFiles = await this._getRelevantSourceFiles(prompt);
 
-            // 2. Реализуем подгрузку соседних чанков для полноты контекста
+            let docsToSearch = this.allDocs;
+            if (sourceFiles.length > 0) {
+                console.log(`[AI Service] Целевой поиск по файлам: ${sourceFiles.join(', ')}`);
+                docsToSearch = this.allDocs.filter(d => sourceFiles.includes(d.metadata.source));
+            } else {
+                console.log('[AI Service] AI-фильтр не выбрал файлы. Общий поиск.');
+            }
+
+            // 2. Векторный поиск по суженному (или полному) списку документов
+            // Создаем временное хранилище только из нужных документов для точности и скорости
+            const tempVectorStore = await MemoryVectorStore.fromDocuments(
+                docsToSearch,
+                this.vectorStore.embeddings
+            );
+            let relevantDocs = await tempVectorStore.similaritySearch(prompt, 15);
+
+            // 3. Умный Fallback: Если векторный поиск дал мало результатов, подключаем поиск по ключевым словам
+            if (relevantDocs.length < 3) {
+                console.log('[AI Service] Векторный поиск дал мало результатов. Включаю поиск по ключевым словам.');
+                const keyword = prompt.split(' ')[0]; // Берем первое слово как ключ
+                const keywordMatches = docsToSearch.filter(d =>
+                    d.pageContent.toLowerCase().includes(keyword.toLowerCase())
+                );
+                // Объединяем результаты и удаляем дубликаты
+                const combinedDocs = [...relevantDocs, ...keywordMatches];
+                relevantDocs = [...new Map(combinedDocs.map(d => [d.pageContent, d])).values()];
+            }
+
+            // 4. Динамическое расширение контекста: подгружаем соседние чанки (±2)
             let expandedDocs: Document[] = [];
             for (const doc of relevantDocs) {
-                expandedDocs.push(doc); // Добавляем сам найденный документ
-
-                const idx = this.allDocs.findIndex(d => d.pageContent === doc.pageContent && d.metadata.source === doc.metadata.source);
-
+                const idx = this.allDocs.findIndex(d => d.pageContent === doc.pageContent);
                 if (idx !== -1) {
-                    // Проверяем и добавляем предыдущий чанк, если он из того же файла
-                    if (this.allDocs[idx - 1] && this.allDocs[idx - 1].metadata.source === doc.metadata.source) {
-                        expandedDocs.push(this.allDocs[idx - 1]);
-                    }
-                    // Проверяем и добавляем следующий чанк, если он из того же файла
-                    if (this.allDocs[idx + 1] && this.allDocs[idx + 1].metadata.source === doc.metadata.source) {
-                        expandedDocs.push(this.allDocs[idx + 1]);
+                    for (let offset = -2; offset <= 2; offset++) {
+                        const neighborIdx = idx + offset;
+                        // Проверяем границы и что сосед из того же файла
+                        if (this.allDocs[neighborIdx] && this.allDocs[neighborIdx].metadata.source === doc.metadata.source) {
+                            expandedDocs.push(this.allDocs[neighborIdx]);
+                        }
                     }
                 }
             }
-            // Удаляем дубликаты, которые могли появиться
+
             const uniqueDocs = [...new Map(expandedDocs.map(d => [d.pageContent, d])).values()];
 
             if (uniqueDocs.length > 0) {
@@ -302,12 +322,13 @@ export class ChatAiService implements OnModuleInit {
             }
         }
 
-        // 3. Ограничиваем общий размер контекста
+        // Ограничиваем финальный размер контекста
         const maxContextLength = 8000;
         if (context.length > maxContextLength) {
             context = context.slice(0, maxContextLength) + '\n\n... (контекст был сокращен для оптимизации)';
         }
-        // --- КОНЕЦ ФИНАЛЬНОЙ ВЕРСИИ ПОИСКА ---
+        // --- КОНЕЦ НОВОЙ ЛОГИКИ ПОИСКА ---
+
         const finalPrompt = `
         Ты - "NeoOSI", экспертный AI-ассистент, специализирующийся на вопросах ОСИ и ЖКХ в Казахстане. Твоя главная задача — давать точные и полезные ответы, основываясь на предоставленных правилах.
         
