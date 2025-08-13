@@ -207,7 +207,7 @@ export class DocumentAiService implements OnModuleInit {
     async processDocumentMessage(prompt: string, user: User): Promise<DocumentProcessingResponse> {
         const userId = user.id;
         const userMessageLanguage = await this.chatAiService.detectLanguage(prompt);
-        const language = user.doc_chat_template ? TEMPLATES_REGISTRY[user.doc_chat_template]?.language || 'ru' : userMessageLanguage;
+
         // БЛОК 1: ПОШАГОВЫЙ ДИАЛОГ
         if (user.doc_chat_template) {
             const allFields = await this.getFieldsForTemplate(user.doc_chat_template);
@@ -254,11 +254,9 @@ export class DocumentAiService implements OnModuleInit {
                 //         : currentField.question;
                 //     return { type: 'chat', content: { action: 'collect_data', message } };
                 // }
-
                 if (confirmationResult.toLowerCase().includes('да')) {
                     await this.usersService.resetDocChatState(userId);
                 
-                    // --- НАЧАЛО ИСПРАВЛЕНИЯ ---
                     // Явно используем язык, на котором пользователь подтвердил отмену.
                     const responseLanguage = userMessageLanguage;
                 
@@ -275,7 +273,6 @@ export class DocumentAiService implements OnModuleInit {
                 
                     // Возвращаем полностью контролируемый нами результат.
                     return { type: 'chat', content: { action: 'clarification', message: finalMessage } };
-                    // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
                 }
             }
 
@@ -304,7 +301,8 @@ export class DocumentAiService implements OnModuleInit {
                     if (user.last_generation_date) {
                         const lastGen = new Date(user.last_generation_date);
                         if (lastGen.getFullYear() === now.getFullYear() && lastGen.getMonth() === now.getMonth()) {
-                            const message = language === 'kz' ? "Сіздің тегін құжат жасау лимитіңіз бітті." : "Ваш лимит на бесплатные документы исчерпан.";
+                            const templateLanguage = TEMPLATES_REGISTRY[user.doc_chat_template]?.language || 'ru';
+                            const message = templateLanguage === 'kz' ? "Сіздің тегін құжат жасау лимитіңіз бітті." : "Ваш лимит на бесплатные документы исчерпан.";
                             await this.usersService.resetDocChatState(userId);
                             return { type: 'chat', content: { action: 'clarification', message } };
                         }
@@ -367,7 +365,7 @@ export class DocumentAiService implements OnModuleInit {
             }
         }
 
-        return this.handleClarification(intentResult, language);
+        return this.handleClarification(intentResult, userMessageLanguage);
     }
 
     // Добавьте этот новый вспомогательный метод в класс
@@ -613,7 +611,7 @@ export class DocumentAiService implements OnModuleInit {
           - Ответ пользователя: "${userAnswersPrompt}"
     
           **ПЛАН ДЕЙСТВИЙ:**
-          1.  **ПРОВЕРКА НА ОТМЕНУ (ВЫСШИЙ ПРИОРИТЕТ):** Сначала проверь, не выражает ли ответ явный отказ, нежелание продолжать или просьбу начать заново (например, "отмена", "не хочу", "давай другой", "керек емес", "бас тартамын"). Если да, немедленно прекрати анализ и верни ТОЛЬКО следующий JSON:
+          1.  **ПРОВЕРКА НА ОТМЕНУ (ВЫСШИЙ ПРИОРИТЕТ):** Сначала проверь, не выражает ли ответ явный отказ, нежелание продолжать или просьбу начать заново (например, "отмена", "не хочу", "давай другой", "не надо", "керек емес", "бас тартамын"). Если да, немедленно прекрати анализ и верни ТОЛЬКО следующий JSON:
               \`{"intent": "cancel"}\`
           
           2.  **ИЗВЛЕЧЕНИЕ ДАННЫХ:** Если это не отмена, попробуй извлечь данные.`;
