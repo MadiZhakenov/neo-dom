@@ -6,7 +6,7 @@ const pdf = require('pdf-parse');
 const basePath = __dirname; // Используем директорию, где лежит сам скрипт
 console.log(`[Cache Script] Base path is: ${basePath}`);
 
-const knowledgeBaseDir = path.join(basePath, 'knowledge_base/templates/pdf_previews');
+const knowledgeBaseDir = path.join(basePath, 'knowledge_base');
 const cacheDir = path.join(basePath, '.pdf-cache');
 
 async function createCache() {
@@ -41,7 +41,24 @@ async function createCache() {
             console.log(`- Processing: ${fileName}...`);
             const dataBuffer = fs.readFileSync(filePath);
             const data = await pdf(dataBuffer);
-            fs.writeFileSync(cachePath, data.text);
+            // --- НАЧАЛО НОВОЙ, УЛУЧШЕННОЙ ЛОГИКИ ОЧИСТКИ ---
+
+            // Шаг 1: Находим настоящие разрывы абзацев (2+ переноса строки)
+            // и заменяем их временным плейсхолдером.
+            let cleanedText = data.text.replace(/(\r\n|\n){2,}/g, '_PARAGRAPH_BREAK_');
+
+            // Шаг 2: Теперь все оставшиеся переносы строки - это просто разрывы строк
+            // внутри абзацев. Заменяем их на пробелы, чтобы склеить слова.
+            cleanedText = cleanedText.replace(/(\r\n|\n)/g, ' ');
+
+            // Шаг 3: Восстанавливаем наши сохраненные разрывы абзацев.
+            cleanedText = cleanedText.replace(/_PARAGRAPH_BREAK_/g, '\n\n');
+
+            // (Опционально) Шаг 4: Убираем лишние пробелы, которые могли образоваться.
+            cleanedText = cleanedText.replace(/ +/g, ' ').trim();
+
+            // --- КОНЕЦ НОВОЙ ЛОГИКИ ОЧИСТКИ ---
+            fs.writeFileSync(cachePath, cleanedText);
             console.log(`  ...SUCCESS! Text saved to .pdf-cache/${fileName}.txt`);
             processedCount++;
         } catch (error) {
