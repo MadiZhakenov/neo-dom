@@ -35,7 +35,7 @@ export class DocumentAiService implements OnModuleInit {
     private primaryModel: any;
     private fallbackModel: any;
     private vectorStore: MemoryVectorStore;
-    private _templateNames: { fileName: string; humanName: string }[];
+    private _templateNames: { fileName: string; humanName: string; language: 'ru' | 'kz' }[];
     private currentLanguage: 'ru' | 'kz' = 'ru';
 
     constructor(
@@ -80,14 +80,28 @@ export class DocumentAiService implements OnModuleInit {
                 console.error(`[AI Service] ОШИБКА КОНФИГУРАЦИИ: Шаблон ${fileName} в templates.registry.ts не имеет поля 'name' или 'tags_in_template'!`);
                 continue;
             }
+            const language = details.language === 'kz' ? 'kz' : 'ru'; // Гарантируем, что значение будет либо 'ru', либо 'kz'
             this._templateNames.push({
                 fileName: fileName.toLowerCase(),
                 humanName: details.name,
+                language: language,
             });
         }
         console.log(`[AI Service] Загружено и провалидировано ${this._templateNames.length} шаблонов.`);
     }
 
+    private _getFormattedTemplateList(language: 'ru' | 'kz'): string {
+        const header = language === 'kz'
+            ? "Міне, қолжетімді құжаттар тізімі:"
+            : "Вот список доступных документов:";
+    
+        const templateList = this._templateNames
+            .filter(t => t.language === language) // <-- ДОБАВЛЕНА ЭТА СТРОКА
+            .map(t => `\n- ${t.humanName}`)
+            .join('');
+    
+        return header + templateList;
+    }
 
     private async initializeVectorStore(apiKey: string) {
         console.log('[AI Service] Инициализация векторной базы знаний...');
@@ -271,7 +285,7 @@ export class DocumentAiService implements OnModuleInit {
             if (nextIndex < allFields.length) {
                 await this.usersService.updateDocChatState(userId, nextIndex, newData);
                 const nextField = allFields[nextIndex];
-                const message = (nextField.example && !nextField.question.includes(nextField.example))
+                const message = nextField.example
                     ? `${nextField.question}\n${nextField.example}`
                     : nextField.question;
                 return { type: 'chat', content: { action: 'collect_data', message: message } };
@@ -378,17 +392,6 @@ export class DocumentAiService implements OnModuleInit {
         return { type: 'chat', content: { action: 'clarification', message } };
     }
 
-    private _getFormattedTemplateList(language: 'ru' | 'kz'): string {
-        const header = language === 'kz'
-            ? "Міне, қолжетімді құжаттар тізімі:\n"
-            : "Вот список доступных документов:\n";
-
-        const templateList = this._templateNames
-            .map(t => `\n- ${t.humanName}`) // Используем дефис для лучшей читаемости
-            .join('');
-
-        return header + templateList;
-    }
     private async getQuestionsForTemplate(templateName: string): Promise<any> {
         const fields = await this.getFieldsForTemplate(templateName);
         const questions = await this.formatQuestionsForUser(fields, templateName);
@@ -399,23 +402,25 @@ export class DocumentAiService implements OnModuleInit {
         const language = this.detectLanguage(prompt);
 
         const intentDetectionPrompt = `
-          Твоя задача - точно классифицировать "Запрос" пользователя. Действуй СТРОГО по плану.
-    
-          **ПЛАН ДЕЙСТВИЙ:**
-          1.  **ПРОВЕРКА НА ПРИВЕТСТВИЕ:** Если "Запрос" - это только приветствие ("Привет", "Салем"), верни JSON: {"intent": "small_talk"}
-          2.  **ПРОВЕРКА НА ОТМЕНУ:** Если "Запрос" содержит явную отмену ("отмена", "не хочу", "керек жок"), верни JSON: {"intent": "cancel"}
-          3.  **ПРОВЕРКА НА ОБЩИЙ ВОПРОС:** Если "Запрос" - это жалоба, вопрос не по теме ИЛИ утверждение, НЕ СВЯЗАННОЕ с документами (например, "сосед затопил", "погода хорошая", "кто ты?"), верни JSON: {"intent": "query"}
-          4.  **ПОИСК ШАБЛОНА ИЛИ НАМЕРЕНИЯ РАБОТАТЬ С ДОКУМЕНТАМИ:**
-              -   Если в запросе **однозначно указан ОДИН шаблон** из списка -> верни JSON с **ИМЕНЕМ ФАЙЛА**: {"templateName": "имя_файла_из_списка.docx"}
-              -   Если запрос выражает **общее желание создать документ**, но не указывает какой именно (например, "хочу новый документ", "давай заполнять", "какие есть документы?"), верни JSON: {"intent": "clarification_needed"}
-              -   Во всех остальных случаях (если не нашел или нашел несколько) -> верни JSON: {"intent": "clarification_needed"}
-    
-          **Список шаблонов (формат: "человеческое имя" (имя файла)):**
-          ${this._templateNames.map(t => `- "${t.humanName}" (${t.fileName})`).join('\n')}
-          
-          Запрос: "${prompt}"
-          Верни ТОЛЬКО JSON.
-        `;
+  Твоя задача — точно классифицировать "Запрос" пользователя, который хочет работать с документами. Действуй СТРОГО по плану.
+
+  **ПЛАН ДЕЙСТВИЙ:**
+  1.  **ЗАПРОС СПИСКА ИЛИ СМЕНА КОНТЕКСТА (ВЫСШИЙ ПРИОРИТЕТ):** Если запрос явно или неявно выражает желание **увидеть список, начать заново или сменить язык** (например, "дай список", "покажи варианты", "какие есть документы?", "на русском плз", "басқа документ керек", "хочу новый документ"), немедленно прекрати анализ и верни JSON: \`{"intent": "clarification_needed"}\`
+  
+  2.  **ПОИСК КОНКРЕТНОГО ШАБЛОНА:** Если это не запрос списка, проверь, не указан ли в запросе **однозначно ОДИН шаблон** из списка. Если да -> верни JSON с **ИМЕНЕМ ФАЙЛА**: \`{"templateName": "имя_файла_из_списка.docx"}\`
+  
+  3.  **ОБЩИЙ ВОПРОС НЕ ПО ТЕМЕ:** Если это жалоба или вопрос, не связанный с созданием документов (например, "сосед затопил", "погода хорошая") -> верни JSON: \`{"intent": "query"}\`
+
+  4.  **ПРИВЕТСТВИЕ:** Если это только приветствие ("Привет", "Салем") -> верни JSON: \`{"intent": "small_talk"}\`
+
+  5.  **НЕЯСНОЕ НАМЕРЕНИЕ:** Во всех остальных случаях (если не нашел шаблон, нашел несколько или сомневаешься) -> верни JSON: \`{"intent": "clarification_needed"}\`
+
+  **Список шаблонов (формат: "человеческое имя" (имя файла)):**
+  ${this._templateNames.map(t => `* "${t.humanName}" (${t.fileName})`).join('\n')}
+
+  Запрос: "${prompt}"
+  Верни ТОЛЬКО JSON.
+`;
 
         const rawResponse = await this.generateWithRetry(intentDetectionPrompt);
         const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
