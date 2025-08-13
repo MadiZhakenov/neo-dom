@@ -92,10 +92,10 @@ export class ChatAiService implements OnModuleInit {
                 metadata: { source: fileName.replace('.txt', '') },
             }));
             const splitter = new RecursiveCharacterTextSplitter({
-                chunkSize: 1000, // Более сбалансированный размер
-                chunkOverlap: 200  // Достаточное перекрытие
+                chunkSize: 1000,
+                chunkOverlap: 200
             });
-            
+
             const docs = await splitter.splitDocuments(documents);
 
             const embeddings = new GoogleGenerativeAIEmbeddings({ apiKey, model: "embedding-001", taskType: TaskType.RETRIEVAL_DOCUMENT });
@@ -107,6 +107,49 @@ export class ChatAiService implements OnModuleInit {
             console.error('[AI Service] CRITICAL ERROR during Vector Store initialization:', error);
         }
     }
+
+    /**
+     * Генерирует несколько вариантов поисковых запросов на основе одного вопроса пользователя.
+     * @param question - Исходный вопрос пользователя.
+     * @returns Массив строк с альтернативными запросами.
+     */
+    private async _generateSearchQueries(question: string): Promise<string[]> {
+        const prompt = `
+      Ты — AI-ассистент, помогающий в поиске информации. Твоя задача — взять "Исходный вопрос" и сгенерировать 3-4 альтернативных поисковых запроса, которые могут помочь найти наиболее релевантную информацию в базе юридических документов.
+      Фокусируйся на ключевых терминах, синонимах и возможных формулировках из официальных документов.
+      Верни запросы в виде JSON-массива строк.
+
+      Пример:
+      Исходный вопрос: "Что такое ОСИ?"
+      Ответ:
+      [
+        "определение термина объединение собственников имущества",
+        "юридический статус и функции ОСИ",
+        "закон о жилищных отношениях объединение собственников"
+      ]
+
+      Исходный вопрос: "${question}"
+      Ответ:
+    `;
+
+        try {
+            const response = await this.generateWithRetry(prompt);
+            // Извлекаем JSON-массив из ответа
+            const match = response.match(/\[([^\]]*)\]/);
+            if (match) {
+                // Безопасно парсим JSON
+                const queries = JSON.parse(match[0].replace(/'/g, '"'));
+                // Добавляем исходный вопрос в список на всякий случай
+                queries.push(question);
+                return queries;
+            }
+            return [question]; // Fallback
+        } catch (error) {
+            console.error("Ошибка при генерации поисковых запросов:", error);
+            return [question]; // Возвращаем исходный вопрос в случае ошибки
+        }
+    }
+
     /**
      * Определяет язык текста (русский или казахский) по наличию специфических символов или common-слов.
      * @param text - Входной текст пользователя.
@@ -126,11 +169,11 @@ export class ChatAiService implements OnModuleInit {
     
           **Твой ответ должен быть ТОЛЬКО одним словом:** 'ru' (для русского) или 'kz' (для казахского).
         `;
-        
+
         try {
             // Используем быстрый вызов без истории и с одной попыткой.
             const result = (await this.generateWithRetry(prompt)).trim().toLowerCase();
-            
+
             if (result === 'kz') {
                 return 'kz';
             }
@@ -214,8 +257,29 @@ export class ChatAiService implements OnModuleInit {
             return message;
         }
 
-        const relevantDocs = this.vectorStore ? await this.vectorStore.similaritySearch(prompt, 12) : [];
-        const context = relevantDocs.map(doc => `ИЗ ДОКУМЕНТА ${doc.metadata.source}:\n${doc.pageContent}`).join('\n\n---\n\n');
+        let context = 'НЕТ РЕЛЕВАНТНЫХ ДАННЫХ';
+
+        if (this.vectorStore) {
+            // 1. Генерируем несколько поисковых запросов
+            const searchQueries = await this._generateSearchQueries(prompt);
+
+            // 2. Ищем документы по каждому запросу
+            const searchResults = await Promise.all(
+                searchQueries.map(query => this.vectorStore.similaritySearch(query, 5)) // Ищем по 5 док. на каждый запрос
+            );
+
+            // 3. Собираем все уникальные документы вместе
+            const uniqueDocs = new Map();
+            searchResults.flat().forEach(doc => {
+                uniqueDocs.set(doc.pageContent, doc);
+            });
+
+            const relevantDocs = Array.from(uniqueDocs.values());
+
+            if (relevantDocs.length > 0) {
+                context = relevantDocs.map(doc => `ИЗ ДОКУМЕНТА ${doc.metadata.source}:\n${doc.pageContent}`).join('\n\n---\n\n');
+            }
+        }
         const finalPrompt = `
         Ты - "NeoOSI", экспертный AI-ассистент, специализирующийся на вопросах ОСИ и ЖКХ в Казахстане. Твоя главная задача — давать точные и полезные ответы, основываясь на предоставленных правилах.
         
