@@ -91,8 +91,11 @@ export class ChatAiService implements OnModuleInit {
                 pageContent: fs.readFileSync(path.join(cacheDir, fileName), 'utf-8'),
                 metadata: { source: fileName.replace('.txt', '') },
             }));
-
-            const splitter = new RecursiveCharacterTextSplitter({ chunkSize: 500, chunkOverlap: 150 });
+            const splitter = new RecursiveCharacterTextSplitter({
+                chunkSize: 1500, // Увеличиваем размер чанка в 3 раза
+                chunkOverlap: 300  // Увеличиваем перекрытие, чтобы гарантировать связность
+            });
+            
             const docs = await splitter.splitDocuments(documents);
 
             const embeddings = new GoogleGenerativeAIEmbeddings({ apiKey, model: "embedding-001", taskType: TaskType.RETRIEVAL_DOCUMENT });
@@ -211,7 +214,7 @@ export class ChatAiService implements OnModuleInit {
             return message;
         }
 
-        const relevantDocs = this.vectorStore ? await this.vectorStore.similaritySearch(prompt, 10) : [];
+        const relevantDocs = this.vectorStore ? await this.vectorStore.similaritySearch(prompt, 15) : [];
         const context = relevantDocs.map(doc => `ИЗ ДОКУМЕНТА ${doc.metadata.source}:\n${doc.pageContent}`).join('\n\n---\n\n');
         const finalPrompt = `
   Ты - "NeoOSI", экспертный AI-ассистент, специализирующийся на вопросах ОСИ и ЖКХ в Казахстане.
