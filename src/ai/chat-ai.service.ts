@@ -109,12 +109,34 @@ export class ChatAiService implements OnModuleInit {
      * @param text - Входной текст пользователя.
      * @returns 'ru' или 'kz'.
      */
-    public detectLanguage(text: string): 'ru' | 'kz' {
-        const kzSpecificChars = /[әғқңөұүіһӘҒҚҢӨҰҮІҺ]/;
-        if (kzSpecificChars.test(text)) { return 'kz'; }
-        const kzCommonWords = /(және|немесе|туралы|бойынша|бастап|дейін|үшін|арқылы)/i;
-        if (kzCommonWords.test(text)) { return 'kz'; }
-        return 'ru';
+    public async detectLanguage(text: string): Promise<'ru' | 'kz'> {
+        // Новый, улучшенный промпт, обучающий AI на конкретных примерах.
+        const prompt = `
+          Определи основной язык этого текста.
+          
+          **ВАЖНЫЕ ПРАВИЛА:**
+          1.  Казахский язык не всегда содержит специфические буквы (ә, і, ғ, қ, ң, ө, ұ, ү, һ).
+          2.  Фразы вроде "Керек емес", "Кажет емес", "Баска документ" — это КАЗАХСКИЙ язык.
+          3.  Даже если в тексте есть русские слова, но основной смысл и ключевые слова казахские (шала казахский), считай его казахским.
+    
+          **Текст для анализа:** "${text}"
+    
+          **Твой ответ должен быть ТОЛЬКО одним словом:** 'ru' (для русского) или 'kz' (для казахского).
+        `;
+        
+        try {
+            // Используем быстрый вызов без истории и с одной попыткой.
+            const result = (await this.generateWithRetry(prompt)).trim().toLowerCase();
+            
+            if (result === 'kz') {
+                return 'kz';
+            }
+            // Во всех остальных случаях (включая непредвиденные ответы AI) считаем язык русским.
+            return 'ru';
+        } catch (error) {
+            console.error("Ошибка при определении языка через AI:", error);
+            return 'ru'; // Безопасный fallback в случае сбоя API.
+        }
     }
 
     /**
@@ -168,7 +190,7 @@ export class ChatAiService implements OnModuleInit {
        * @returns Текстовый ответ от AI.
        */
     async getChatAnswer(prompt: string, userId: number): Promise<string> {
-        const language = this.detectLanguage(prompt);
+        const language = await this.detectLanguage(prompt);
         const history = await this.chatHistoryService.getHistory(userId, ChatType.GENERAL);
 
         const isDocumentRequest = /акт|документ|заявление|форма|справка/i.test(prompt);
