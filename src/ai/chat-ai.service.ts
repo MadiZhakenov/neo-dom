@@ -23,6 +23,117 @@ export class ChatAiService implements OnModuleInit {
     private _templateNames: { fileName: string; humanName: string }[];
     private allDocs: Document[] = [];
     private currentLanguage: 'ru' | 'kz' = 'ru';
+    private readonly keywordToFileMap = [
+        {
+            "keywords": ["определение", "термин", "что такое", "понятие", "означает"],
+            "files": [
+                "СТ РК 2966-2023.pdf",
+                "Закон Республики Казахстан от 15 июля 2025 года № 207-VIII О внесении изменений и дополнений в некоторые законодательные акты.pdf"
+            ]
+        },
+        {
+            "keywords": ["капитальный ремонт", "капремонт", "модернизация", "реконструкция"],
+            "files": [
+                "СТ РК 2978-2023 Жилищно-коммунальное хозяйство. Проведение капитального ремонта общего имущества объекта кондоминиума. Общие тре.pdf",
+                "Закон Республики Казахстан от 15 июля 2025 года № 207-VIII О внесении изменений и дополнений в некоторые законодательные акты.pdf",
+                "СТ РК 2979-2017.pdf"
+            ]
+        },
+        {
+            "keywords": ["текущий ремонт", "косметический ремонт"],
+            "files": [
+                "СТ РК 2864-2016.pdf",
+                "Закон Республики Казахстан от 15 июля 2025 года № 207-VIII О внесении изменений и дополнений в некоторые законодательные акты.pdf",
+                "СТ РК 2979-2017.pdf"
+            ]
+        },
+        {
+            "keywords": ["технический осмотр", "обследование", "мониторинг", "техническое состояние", "аварийное состояние", "износ"],
+            "files": [
+                "СТ РК 2979-2017.pdf",
+                "СТ РК 2966-2023.pdf"
+            ]
+        },
+        {
+            "keywords": ["мусор", "отходы", "ТБО", "КГО", "вывоз отходов", "сбор мусора", "контейнер", "свалка"],
+            "files": [
+                "СТ РК 2862-2023 Жилищно-коммунальное хозяйство. Сбор и вывоз твердых бытовых отходов. Общие требования.pdf"
+            ]
+        },
+        {
+            "keywords": ["отопление", "теплоснабжение", "горячая вода", "ГВС", "теплоноситель", "ИТП", "температура в квартире"],
+            "files": [
+                "СТ РК 2863-2016.pdf"
+            ]
+        },
+        {
+            "keywords": ["электричество", "электроснабжение", "электрооборудование", "счетчик", "щиток", "ВРУ"],
+            "files": [
+                "СТ РК 2973-2017.pdf"
+            ]
+        },
+        {
+            "keywords": ["диспетчер", "аварийная служба", "авария", "заявка", "устранение аварии"],
+            "files": [
+                "СТ РК 2975-2017.pdf"
+            ]
+        },
+        {
+            "keywords": ["содержание", "общее имущество", "уборка", "санитарное содержание", "обслуживание"],
+            "files": [
+                "СТ РК 2976-2023.pdf",
+                "СТ РК 2970-2023 Жилищно-коммунальное хозяйство. Управление объектом кондоминиума. Общие требования.pdf"
+            ]
+        },
+        {
+            "keywords": ["управление", "ОСИ", "КСК", "собрание собственников", "протокол собрания", "совет дома", "председатель", "форма управления"],
+            "files": [
+                "Закон Республики Казахстан от 15 июля 2025 года № 207-VIII О внесении изменений и дополнений в некоторые законодательные акты.pdf",
+                "СТ РК 2970-2023 Жилищно-коммунальное хозяйство. Управление объектом кондоминиума. Общие требования.pdf"
+            ]
+        },
+        {
+            "keywords": ["взносы", "оплата", "тариф", "текущие взносы", "накопительные взносы", "целевые взносы", "задолженность"],
+            "files": [
+                "Закон Республики Казахстан от 15 июля 2025 года № 207-VIII О внесении изменений и дополнений в некоторые законодательные акты.pdf"
+            ]
+        },
+        {
+            "keywords": ["коммунальные услуги", "поставщик", "ресурсоснабжающая организация"],
+            "files": [
+                "СТ РК 2967-2023.pdf",
+                "Закон Республики Казахстан от 15 июля 2025 года № 207-VIII О внесении изменений и дополнений в некоторые законодательные акты.pdf"
+            ]
+        },
+        {
+            "keywords": ["техническая документация", "паспорт дома", "акт приема-передачи", "исполнительная документация"],
+            "files": [
+                "СТ РК 2970-2023 Жилищно-коммунальное хозяйство. Управление объектом кондоминиума. Общие требования.pdf",
+                "СТ РК 2864-2016.pdf",
+                "СТ РК 2978-2023 Жилищно-коммунальное хозяйство. Проведение капитального ремонта общего имущества объекта кондоминиума. Общие тре.pdf"
+            ]
+        },
+        {
+            "keywords": ["стабильность", "устойчивость", "оценка зданий", "критерии", "показатели", "бенчмаркинг", "ISO 21678"],
+            "files": [
+                "ҚР СТ ISO 21678-2023.pdf"
+            ]
+        },
+        {
+            "keywords": ["реестр", "список стандартов", "перечень стандартов", "СТ РК"],
+            "files": [
+                "Реестр стандартов.pdf"
+            ]
+        },
+        {
+            "keywords": ["кондоминиум", "общее имущество", "обязанности собственника", "права собственника"],
+            "files": [
+                "Закон Республики Казахстан от 15 июля 2025 года № 207-VIII О внесении изменений и дополнений в некоторые законодательные акты.pdf",
+                "СТ РК 2970-2023 Жилищно-коммунальное хозяйство. Управление объектом кондоминиума. Общие требования.pdf",
+                "СТ РК 2966-2023.pdf"
+            ]
+        }
+    ]
 
     constructor(
         private readonly configService: ConfigService,
@@ -67,50 +178,45 @@ export class ChatAiService implements OnModuleInit {
         console.log(`[AI Service] Загружено и провалидировано ${this._templateNames.length} шаблонов.`);
     }
 
-    private async getRelevantDocs(question: string, topK: number = 7): Promise<Document[]> {
-        if (!this.vectorStore) return [];
-
-        // 1. Векторный поиск как основная стратегия
-        let relevantDocs = await this.vectorStore.similaritySearch(question, topK);
-
-        // 2. Расширение контекста соседними чанками (±2)
-        let expandedDocs: Document[] = [];
+    private async getRelevantDocs(question: string, topK: number = 10, docsForSearch: Document[]): Promise<Document[]> {
+        if (!this.vectorStore || docsForSearch.length === 0) return [];
+    
+        const lowerQ = question.toLowerCase().replace(/[^а-яa-z0-9\s]/g, '');
+        const keywords = lowerQ.split(/\s+/).filter(w => w.length > 3 && !['что', 'такое', 'какие', 'где', 'как', 'это', 'для', 'или'].includes(w));
+    
+        let relevantDocs: Document[] = [];
+    
+        // 1. Приоритетный поиск по точному совпадению ключевых слов
+        if (keywords.length > 0) {
+            const keywordMatches = docsForSearch.filter(doc =>
+                keywords.every(kw => doc.pageContent.toLowerCase().includes(kw))
+            );
+            relevantDocs.push(...keywordMatches);
+        }
+        
+        // 2. Если точных совпадений мало, добавляем результаты векторного поиска
+        if (relevantDocs.length < 5) {
+            const tempVectorStore = await MemoryVectorStore.fromDocuments(docsForSearch, this.vectorStore.embeddings);
+            const vectorResults = await tempVectorStore.similaritySearch(question, topK);
+            relevantDocs.push(...vectorResults);
+        }
+    
+        // 3. Склейка связанных чанков (расширение контекста)
+        let expandedDocs = new Set<Document>();
         for (const doc of relevantDocs) {
+            expandedDocs.add(doc);
             const idx = this.allDocs.findIndex(d => d.pageContent === doc.pageContent);
             if (idx !== -1) {
                 for (let offset = -2; offset <= 2; offset++) {
                     const neighborIdx = idx + offset;
                     if (this.allDocs[neighborIdx] && this.allDocs[neighborIdx].metadata.source === doc.metadata.source) {
-                        expandedDocs.push(this.allDocs[neighborIdx]);
+                        expandedDocs.add(this.allDocs[neighborIdx]);
                     }
                 }
             }
         }
-
-        // 3. Keyword Fallback: если векторный поиск слаб, ищем по словам
-        if (expandedDocs.length < 5) {
-            const lowerQ = question.toLowerCase();
-            const keywordMatches = this.allDocs.filter(doc =>
-                lowerQ.split(/\s+/).some(word =>
-                    word.length > 3 && doc.pageContent.toLowerCase().includes(word)
-                )
-            );
-            expandedDocs.push(...keywordMatches.slice(0, 10)); // Добавляем до 10 совпадений
-        }
-
-        // 4. Always Include: если в вопросе упомянуто имя файла
-        const directMatchSource = this.allDocs
-            .map(d => d.metadata.source as string)
-            .find(source => question.toLowerCase().includes(source.toLowerCase().replace('.pdf.txt', '')));
-
-        if (directMatchSource) {
-            console.log(`[AI Service] Обнаружено прямое упоминание файла: ${directMatchSource}`);
-            const directMatchDocs = this.allDocs.filter(doc => doc.metadata.source === directMatchSource);
-            expandedDocs.push(...directMatchDocs);
-        }
-
-        // 5. Удаляем дубликаты и возвращаем результат
-        return [...new Map(expandedDocs.map(d => [d.pageContent, d])).values()];
+        
+        return Array.from(expandedDocs);
     }
 
 
@@ -166,43 +272,22 @@ export class ChatAiService implements OnModuleInit {
      * @param question - Исходный вопрос пользователя.
      * @returns Массив имен файлов для поиска.
      */
-    private async _getRelevantSourceFiles(question: string): Promise<string[]> {
-        const fileList = this.allDocs.map(d => d.metadata.source)
-            .filter((value, index, self) => self.indexOf(value) === index) // Оставляем только уникальные имена
-            .join('\n');
-
-        const prompt = `
-          Твоя задача — выступить в роли помощника-юриста. Проанализируй "Вопрос пользователя" и, основываясь на "Списке доступных документов", определи, какие 2-3 файла наиболее важны для поиска точного ответа.
-          Фокусируйся на ключевых словах, номерах стандартов ("СТ РК") и законов.
-          Верни свой ответ в виде JSON-массива строк с точными именами файлов. Если не уверен, верни пустой массив [].
+    private _getRelevantSourceFiles(question: string): string[] {
+        const lowerQuestion = question.toLowerCase().replace(/[^а-яa-z0-9\s]/g, '');
+        let matchedFiles = new Set<string>();
     
-          Пример:
-          Вопрос пользователя: "В чем разница между текущим и капитальным ремонтом?"
-          Ответ:
-          [
-            "СТ РК 2966-2023.pdf.txt",
-            "СТ РК 2864-2016.pdf.txt"
-          ]
-    
-          **Список доступных документов:**
-          ${fileList}
-    
-          **Вопрос пользователя:** "${question}"
-    
-          **Ответ (ТОЛЬКО JSON-массив):**
-        `;
-
-        try {
-            const response = await this.generateWithRetry(prompt);
-            const match = response.match(/\[[\s\S]*?\]/);
-            if (match) {
-                return JSON.parse(match[0].replace(/'/g, '"'));
+        // 1. Приоритетный поиск по жестким правилам
+        for (const rule of this.keywordToFileMap) {
+            for (const keyword of rule.keywords) {
+                if (lowerQuestion.includes(keyword)) {
+                    rule.files.forEach(file => matchedFiles.add(file));
+                }
             }
-            return [];
-        } catch (error) {
-            console.error("Ошибка при выборе файлов-источников:", error);
-            return [];
         }
+    
+        const result = Array.from(matchedFiles);
+        console.log(`[AI Service] Keyword mapping выбрал файлы: ${result.length > 0 ? result.join(', ') : 'нет совпадений'}`);
+        return result;
     }
 
     /**
@@ -311,17 +396,26 @@ export class ChatAiService implements OnModuleInit {
             await this.chatHistoryService.addMessageToHistory(userId, prompt, message, ChatType.GENERAL);
             return message;
         }
-        const uniqueDocs = await this.getRelevantDocs(prompt, 7);
-
+        const relevantFiles = this._getRelevantSourceFiles(prompt); // Метод больше не async
+        let docsForSearch = this.allDocs;
+        
+        if (relevantFiles.length > 0) {
+            docsForSearch = this.allDocs.filter(d => relevantFiles.includes(d.metadata.source));
+        } else {
+            console.log('[AI Service] Keyword mapping не нашел файлов. Поиск по всей базе.');
+        }
+        
+        const uniqueDocs = await this.getRelevantDocs(prompt, 10, docsForSearch);
+        
         let context = 'НЕТ РЕЛЕВАНТНЫХ ДАННЫХ';
         if (uniqueDocs.length > 0) {
             context = uniqueDocs
                 .map(doc => `ИЗ ДОКУМЕНТА ${doc.metadata.source}:\n${doc.pageContent}`)
                 .join('\n\n---\n\n');
         }
-
+        
         // Ограничиваем финальный размер контекста
-        const maxContextLength = 8000;
+        const maxContextLength = 16000; // Увеличим лимит, раз уж тянем целые документы
         if (context.length > maxContextLength) {
             context = context.slice(0, maxContextLength) + '\n\n... (контекст был сокращен для оптимизации)';
         }
