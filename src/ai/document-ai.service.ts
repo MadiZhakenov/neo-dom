@@ -243,16 +243,39 @@ export class DocumentAiService implements OnModuleInit {
             `;
                 const confirmationResult = await this.chatAiService.generateWithRetry(confirmationPrompt);
 
+                // if (confirmationResult.toLowerCase().includes('да')) {
+                //     await this.usersService.resetDocChatState(userId);
+
+                //     return this.handleClarification({ intent: 'clarification_needed' }, userMessageLanguage);
+                // } else {
+                //     await this.usersService.updateDocChatState(userId, currentIndex, user.doc_chat_pending_data, null);
+                //     const message = currentField.example
+                //         ? `${currentField.question}\n${currentField.example}`
+                //         : currentField.question;
+                //     return { type: 'chat', content: { action: 'collect_data', message } };
+                // }
+
                 if (confirmationResult.toLowerCase().includes('да')) {
                     await this.usersService.resetDocChatState(userId);
-                    // Используем уже существующую userMessageLanguage
-                    return this.handleClarification({ intent: 'clarification_needed' }, userMessageLanguage);
-                } else {
-                    await this.usersService.updateDocChatState(userId, currentIndex, user.doc_chat_pending_data, null);
-                    const message = currentField.example
-                        ? `${currentField.question}\n${currentField.example}`
-                        : currentField.question;
-                    return { type: 'chat', content: { action: 'collect_data', message } };
+                
+                    // --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+                    // Явно используем язык, на котором пользователь подтвердил отмену.
+                    const responseLanguage = userMessageLanguage;
+                
+                    // Формируем заголовок на нужном языке.
+                    const clarificationMessage = responseLanguage === 'kz'
+                        ? 'Қандай құжат керектігін нақтылаңызшы.'
+                        : 'Уточните, какой документ вам нужен?';
+                
+                    // Получаем список документов, отфильтрованный по нужному языку.
+                    const templateList = this._getFormattedTemplateList(responseLanguage);
+                
+                    // Собираем финальное сообщение.
+                    const finalMessage = `${clarificationMessage}\n\n${templateList}`;
+                
+                    // Возвращаем полностью контролируемый нами результат.
+                    return { type: 'chat', content: { action: 'clarification', message: finalMessage } };
+                    // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
                 }
             }
 
