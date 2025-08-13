@@ -94,12 +94,12 @@ export class DocumentAiService implements OnModuleInit {
         const header = language === 'kz'
             ? "Міне, қолжетімді құжаттар тізімі:"
             : "Вот список доступных документов:";
-    
+
         const templateList = this._templateNames
             .filter(t => t.language === language) // <-- ДОБАВЛЕНА ЭТА СТРОКА
             .map(t => `\n- ${t.humanName}`)
             .join('');
-    
+
         return header + templateList;
     }
 
@@ -206,72 +206,57 @@ export class DocumentAiService implements OnModuleInit {
 
     async processDocumentMessage(prompt: string, user: User): Promise<DocumentProcessingResponse> {
         const userId = user.id;
-        const language = await this.detectLanguage(prompt);
-
+        const userMessageLanguage = await this.chatAiService.detectLanguage(prompt);
+        const language = user.doc_chat_template ? TEMPLATES_REGISTRY[user.doc_chat_template]?.language || 'ru' : userMessageLanguage;
         // БЛОК 1: ПОШАГОВЫЙ ДИАЛОГ
         if (user.doc_chat_template) {
             const allFields = await this.getFieldsForTemplate(user.doc_chat_template);
             const currentIndex = user.doc_chat_question_index || 0;
 
+            // Теперь эта проверка работает, так как userMessageLanguage объявлена выше
             if (currentIndex >= allFields.length) {
                 await this.usersService.resetDocChatState(userId);
-                return this.handleClarification({ intent: 'clarification_needed' }, language);
+                return this.handleClarification({ intent: 'clarification_needed' }, userMessageLanguage);
             }
 
             const currentField = allFields[currentIndex];
 
-            // --- ИЗМЕНЕНИЕ: Используем старый мощный extractDataForDocx, но с фокусом на одном вопросе ---
-            // Он будет анализировать ВСЮ историю, но искать ответ на КОНКРЕТНЫЙ вопрос
             const extractionResult = await this.extractDataForDocx(prompt, user.doc_chat_template, userId, currentField.question, currentField.tag);
-            // --- НАЧАЛО ФИНАЛЬНОЙ ЛОГИКИ ОБРАБОТКИ ОТМЕНЫ ---
-
-            // Определяем язык ПОСЛЕДНЕГО сообщения пользователя
-            const userMessageLanguage = await this.chatAiService.detectLanguage(prompt);
-
             // 1. Пользователь инициирует отмену
             if (extractionResult.intent === 'cancel') {
-                // Определяем язык СООБЩЕНИЯ пользователя, чтобы ответить на том же языке
-                const userMessageLanguage = await this.chatAiService.detectLanguage(prompt);
-
+                // Используем уже существующую userMessageLanguage, НЕ объявляем заново
                 const message = userMessageLanguage === 'kz'
                     ? 'Сіз құжатты толтыруды тоқтатқыңыз келетініне сенімдісіз бе? (иә/жоқ)'
                     : 'Вы уверены, что хотите отменить заполнение документа? (да/нет)';
 
-                // Переводим диалог в состояние ожидания подтверждения отмены
                 await this.usersService.updateDocChatState(userId, currentIndex, user.doc_chat_pending_data, 'cancel_pending');
-
                 return { type: 'chat', content: { action: 'clarification', message } };
             }
 
             // 2. Пользователь отвечает на вопрос об отмене
             if (user.doc_chat_request_id === 'cancel_pending') {
-                // Используем AI, чтобы понять ответ пользователя (согласен или нет)
                 const confirmationPrompt = `
-                Проанализируй ответ пользователя на вопрос о подтверждении. Ответ может быть на русском или казахском языке (включая варианты "иа", "ия", "иә").
-                Он выражает согласие/подтверждение?
-                Ответ пользователя: "${prompt}"
-                Верни только одно слово: "да" если согласие, "нет" если несогласие.
-              `;
+              Проанализируй ответ пользователя на вопрос о подтверждении. Ответ может быть на русском или казахском языке (включая варианты "иа", "ия", "иә").
+              Он выражает согласие/подтверждение?
+              Ответ пользователя: "${prompt}"
+              Верни только одно слово: "да" если согласие, "нет" если несогласие.
+            `;
                 const confirmationResult = await this.chatAiService.generateWithRetry(confirmationPrompt);
 
-                // Пользователь ПОДТВЕРДИЛ отмену
                 if (confirmationResult.toLowerCase().includes('да')) {
                     await this.usersService.resetDocChatState(userId);
-                    // Возвращаемся к выбору документа. Язык ответа соответствует языку ДОКУМЕНТА.
+                    // Используем уже существующую userMessageLanguage
                     return this.handleClarification({ intent: 'clarification_needed' }, userMessageLanguage);
-                }
-                // Пользователь ПЕРЕДУМАЛ отменять
-                else {
-                    // Убираем флаг ожидания и повторяем предыдущий вопрос
+                } else {
                     await this.usersService.updateDocChatState(userId, currentIndex, user.doc_chat_pending_data, null);
-
                     const message = currentField.example
                         ? `${currentField.question}\n${currentField.example}`
                         : currentField.question;
                     return { type: 'chat', content: { action: 'collect_data', message } };
                 }
             }
-            // --- КОНЕЦ ФИНАЛЬНОЙ ЛОГИКИ ОБРАБОТКИ ОТМЕНЫ ---
+
+            // --- КОНЕЦ ЛОГИКИ ОБРАБОТКИ ОТМЕНЫ ---
 
             if (extractionResult.error) {
                 const retryMessage = `${extractionResult.error}\n\n${currentField.question}`;
@@ -285,10 +270,8 @@ export class DocumentAiService implements OnModuleInit {
             if (nextIndex < allFields.length) {
                 await this.usersService.updateDocChatState(userId, nextIndex, newData);
                 const nextField = allFields[nextIndex];
-                const message = nextField.example
-                    ? `${nextField.question}\n${nextField.example}`
-                    : nextField.question;
-                return { type: 'chat', content: { action: 'collect_data', message: message } };
+                const message = nextField.example ? `${nextField.question}\n${nextField.example}` : nextField.question;
+                return { type: 'chat', content: { action: 'collect_data', message } };
             } else {
                 let finalData = newData;
 
@@ -349,7 +332,6 @@ export class DocumentAiService implements OnModuleInit {
                 return { type: 'file', content: docxBuffer, fileName: user.doc_chat_template, historyContent: modelResponseContent };
             }
         }
-
         // БЛОК 2: НАЧАЛО НОВОГО ДИАЛОГА
         const intentResult = await this.findTemplate(prompt);
         if (intentResult.templateName) {
@@ -357,10 +339,8 @@ export class DocumentAiService implements OnModuleInit {
             if (allFields && allFields.length > 0) {
                 await this.usersService.startDocChat(user.id, intentResult.templateName);
                 const firstField = allFields[0];
-                const message = firstField.example
-                    ? `${firstField.question}\n*Мысалы: ${firstField.example}*`
-                    : firstField.question;
-                return { type: 'chat', content: { action: 'collect_data', message: message } };
+                const message = firstField.example ? `${firstField.question}\n${firstField.example}` : firstField.question;
+                return { type: 'chat', content: { action: 'collect_data', message } };
             }
         }
 
