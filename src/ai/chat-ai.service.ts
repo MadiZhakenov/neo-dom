@@ -180,14 +180,17 @@ export class ChatAiService implements OnModuleInit {
     }
 
     async getChatAnswer(prompt: string, userId: number): Promise<string> {
-        const language = await this.detectLanguage(prompt);
-        const history = await this.chatHistoryService.getHistory(userId, ChatType.GENERAL);
-
-        if (this.isDocumentRequest(prompt)) {
+        if (await this.isDocumentRequest(prompt)) {
+            const language = await this.detectLanguage(prompt);
             const msg = language === 'kz' ? "Әрине! Құжаттарды жасау үшін бізде 'ЖИ-Құжаттар' арнайы бөлімі бар..." : "Конечно! Для создания документов у нас есть раздел 'ИИ-Документы'...";
             await this.chatHistoryService.addMessageToHistory(userId, prompt, msg, ChatType.GENERAL);
             return msg;
         }
+
+        // --- Если это не запрос на создание документа, продолжаем как обычно ---
+        const language = await this.detectLanguage(prompt);
+        const history = await this.chatHistoryService.getHistory(userId, ChatType.GENERAL);
+
         if (this.isGreeting(prompt, history)) {
             const msg = language === 'kz' ? "Сәлеметсіз бе! Мен — NeoOSI..." : "Здравствуйте! Я — NeoOSI...";
             await this.chatHistoryService.addMessageToHistory(userId, prompt, msg, ChatType.GENERAL);
@@ -345,22 +348,29 @@ export class ChatAiService implements OnModuleInit {
     }
 
     private async _generateFinalAnswer(prompt: string, context: string, language: Lang): Promise<string> {
-        const strictNoDataRu = 'В предоставленных документах нет точной информации по вашему вопросу.';
-        const strictNoDataKz = 'Берілген құжаттарда бұл сұрақ бойынша нақты ақпарат жоқ.';
-        const advisoryRu = 'В моей базе нет точной нормы, но могу дать общий совет:';
-        const advisoryKz = 'Нақты норма табылмады, бірақ жалпы кеңес бере аламын:';
-
+        // ...
         const sys = `Ты — "NeoOSI", эксперт по ОСИ и ЖКХ Казахстана. Работай строго по правилам:
-1) ДОКУМЕНТЫ — ИСТОЧНИК ИСТИНЫ. Цитируй дословно и указывай источник: "Согласно <название документа> ...". Не выдумывай.
-2) ЕСЛИ КОНТЕКСТ ПУСТ, а вопрос о термине/законе/стандарте: Ответь одной фразой: "${language === 'kz' ? strictNoDataKz : strictNoDataRu}"
-3) ЕСЛИ КОНТЕКСТ ПУСТ, а вопрос общий (бытовой): Начни с "${language === 'kz' ? advisoryKz : advisoryRu}" и дай совет.
-4) ЯЗЫК ОТВЕТА: строго ${language === 'kz' ? 'казахский' : 'русский'}.
---- КОНТЕКСТ ---
-${context}
---- КОНЕЦ КОНТЕКСТА ---
-Вопрос: "${prompt}"`.trim();
+    
+    1) ДОКУМЕНТЫ — ИСТОЧНИК ИСТИНЫ. Цитируй дословно...
+    2) ЕСЛИ КОНТЕКСТ ПУСТ...
+    3) ЕСЛИ КОНТЕКСТ ПУСТ, а вопрос общий...
+    4) ЯЗЫК ОТВЕТА: строго ${language === 'kz' ? 'казахский' : 'русский'}.
+    
+    5) **ПРАВИЛО ФОРМАТИРОВАНИЯ (КРИТИЧЕСКИ ВАЖНО):**
+       - Твой ответ должен быть ТОЛЬКО чистым текстом.
+       - **ЗАПРЕЩЕНО** использовать любую Markdown-разметку: *, **, #, -, [ ], ( ).
+       - Ты можешь использовать переносы строк (\\n) для разделения абзацев.
+       - Ты можешь использовать эмодзи, если это уместно.
+    
+    --- КОНТЕКСТ ---
+    ${context}
+    --- КОНЕЦ КОНТЕКСТА ---
+    Вопрос: "${prompt}"`.trim();
 
-        return this.generateWithRetry(sys);
+        // Добавляем пост-обработку на всякий случай
+        const rawAnswer = await this.generateWithRetry(sys);
+        const cleanedAnswer = rawAnswer.replace(/[*#_`~]/g, ''); // Убираем основные символы markdown
+        return cleanedAnswer;
     }
 
     private _getRelevantSourceFiles(question: string): string[] {
@@ -374,17 +384,65 @@ ${context}
         return Array.from(matched);
     }
 
-    private isDocumentRequest(prompt: string): boolean { return /акт|документ|заявление|форма|справка/i.test(prompt); }
+    private async isDocumentRequest(prompt: string): Promise<boolean> {
+        const intentPrompt = `
+          Проанализируй "Запрос пользователя". Он хочет СОЗДАТЬ, СДЕЛАТЬ или ОФОРМИТЬ новый документ (акт, справку, заявление и т.д.)? Или он просто СПРАШИВАЕТ информацию о документах (какие нужны, как выглядят и т.д.)?
+    
+          Правила:
+          - Если он хочет СОЗДАТЬ документ -> ответь "ДА".
+          - Если он просто СПРАШИВАЕТ -> ответь "НЕТ".
+          - "Дай мне список документов" — это СПРАШИВАЕТ.
+          - "Какие документы нужны?" — это СПРАШИВАЕТ.
+          - "Хочу оформить акт" — это СОЗДАТЬ.
+    
+          Запрос пользователя: "${prompt}"
+          
+          Твой ответ должен быть ТОЛЬКО ОДНИМ СЛОВОМ: ДА или НЕТ.
+        `;
+
+        try {
+            // Используем быстрый вызов без истории
+            const result = await this.generateWithRetry(intentPrompt);
+            // Проверяем, содержит ли ответ "ДА" без учета регистра
+            return /да/i.test(result.trim());
+        } catch (error) {
+            this.logger.error("Ошибка при определении намерения создать документ:", error);
+            return false; // В случае ошибки считаем, что это информационный запрос (безопасный fallback)
+        }
+    }
     private isGreeting(prompt: string, history: Content[]): boolean { return /^(привет|сәлем|hello|здравствуйте)$/i.test(prompt.trim()) && history.length < 2; }
     private isLegalQuestion(prompt: string): boolean { return /обязанности|права|ответственность|согласно|закон|стандарт|термин/i.test(prompt); }
     private isDefinitionQuestion(prompt: string): boolean { return /что такое|определение|понятие|означает/i.test(prompt); }
 
     public async detectLanguage(text: string): Promise<Lang> {
-        const prompt = `Определи язык текста. Правила: 1) Казахский может быть без диакритик. 2) "шала-казахские" фразы ("Керек емес") — казахский. 3) Ответь только: 'ru' или 'kz'. Текст: "${text}"`.trim();
+        const prompt = `
+    Твоя задача — точно определить основной язык текста.
+    
+    **КРИТИЧЕСКИ ВАЖНЫЕ ПРАВИЛА:**
+    1.  **"Шала-казахский" — это КАЗАХСКИЙ.** Это смешанный язык, где используются русские и казахские слова. Если видишь такое — всегда выбирай 'kz'.
+    2.  **Отсутствие диакритик — это КАЗАХСКИЙ.** Казахский текст часто пишут без специальных символов (ә, і, ғ, қ, ң, ө, ұ, ү, һ). Например, "маган улкен комек керек" — это 'kz'.
+    3.  **Приоритет у казахского:** Если в тексте есть и русские, и казахские слова, но ключевой смысл или основные термины казахские — это 'kz'.
+    
+    **ПРИМЕРЫ:**
+    -   "маган улкен комек керек боп тур" -> kz
+    -   "калайсын брат, документ жасау керек" -> kz
+    -   "справка керек емес" -> kz
+    -   "Привет, как дела?" -> ru
+    -   "Дай мне список документов" -> ru
+    
+    **Текст для анализа:** "${text}"
+    
+    **Твой ответ должен быть ТОЛЬКО ОДНИМ СЛОВОМ:** 'ru' или 'kz'.
+    `.trim();
+
         try {
             const result = (await this.generateWithRetry(prompt)).trim().toLowerCase();
+            this.logger.debug(`Language detected for "${text}": ${result}`);
             return result === 'kz' ? 'kz' : 'ru';
-        } catch { return 'ru'; }
+        } catch (error) {
+            this.logger.error(`Ошибка при определении языка для текста: "${text}"`, error);
+            return 'ru'; // Безопасный fallback
+        }
     }
 
     public async generateWithRetry(prompt: string, history: Content[] = [], retries = 3): Promise<string> {
