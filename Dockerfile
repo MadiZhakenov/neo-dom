@@ -15,7 +15,7 @@ RUN apk add --no-cache build-base g++ cairo-dev jpeg-dev pango-dev giflib-dev py
 
 # Копируем package.json и устанавливаем ВСЕ зависимости
 COPY package*.json ./
-RUN npm install
+RUN npm install --legacy-peer-deps
 
 
 # =============================================================
@@ -44,10 +44,9 @@ WORKDIR /neo-osi-backend
 # --- ИСПРАВЛЕНИЕ: ДОБАВЛЯЕМ УСТАНОВКУ ЗАВИСИМОСТЕЙ И СЮДА ---
 # 'canvas' требует их не только для сборки, но и для запуска.
 RUN apk add --no-cache build-base g++ cairo-dev jpeg-dev pango-dev giflib-dev python3
-
 # Копируем package.json и устанавливаем ТОЛЬКО production-зависимости
 COPY package*.json ./
-RUN npm install --omit=dev
+RUN npm install --omit=dev --legacy-peer-deps
 
 # Копируем скомпилированный код и все ассеты из этапа "Builder"
 COPY --from=builder /neo-osi-backend/dist ./dist
