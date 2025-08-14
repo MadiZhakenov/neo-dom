@@ -35,8 +35,8 @@ export class ChatAiService implements OnModuleInit {
     private readonly INDEX_DIR = path.join(process.cwd(), '.rag-index');
     private readonly RAG_CHUNK_SIZE = 900;
     private readonly RAG_CHUNK_OVERLAP = 420;
-    private readonly RAG_VECTOR_TOPK = 30; // Базовое значение
-    private readonly RAG_HARD_CONTEXT_LIMIT = 60000; // Увеличенный лимит
+    private readonly RAG_VECTOR_TOPK = 120; // Базовое значение
+    private readonly RAG_HARD_CONTEXT_LIMIT = 100000;
     private readonly keywordToFileMap = [
         { "keywords": ["определение", "термин", "что такое", "понятие", "означает"], "files": ["СТ РК 2966-2023.pdf.txt", "Закон Республики Казахстан от 15 июля 2025 года № 207-VIII О внесении изменений и дополнений в некоторые законодательные акты.pdf.txt"] },
         { "keywords": ["капитальный ремонт", "капремонт", "модернизация", "реконструкция"], "files": ["СТ РК 2978-2023 Жилищно-коммунальное хозяйство. Проведение капитального ремонта общего имущества объекта кондоминиума. Общие тре.pdf.txt", "Закон Республики Казахстан от 15 июля 2025 года № 207-VIII О внесении изменений и дополнений в некоторые законодательные акты.pdf.txt", "СТ РК 2979-2017.pdf.txt"] },
@@ -226,7 +226,7 @@ export class ChatAiService implements OnModuleInit {
         if (!this.vectorStore) return [];
 
         const terms = this._extractSearchTerms(question);
-        const dynamicTopK = Math.max(40, terms.length * 10);
+        const dynamicTopK = Math.max(80, terms.length * 40);
 
         const { strong, weak } = this._keywordSearch(terms, docsForSearch);
         this.logger.log(`[RAG] Keyword Search: ${strong.length} strong, ${weak.length} weak hits.`);
