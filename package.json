@@ -22,7 +22,7 @@
     "migration:generate": "npm run typeorm:local -- migration:generate src/migrations/AddUserDocChatState",
     "migration:run:local": "npm run typeorm:local -- migration:run",
     "migration:revert": "npm run typeorm -- migration:revert",
-    "db:migrate:prod": "typeorm-ts-node-commonjs -d dist/data-source.js migration:run",
+    "db:migrate:prod": "typeorm migration:run -d dist/data-source.js",
     "cache": "node cache-knowledge-base.js"
   },
   "dependencies": {
