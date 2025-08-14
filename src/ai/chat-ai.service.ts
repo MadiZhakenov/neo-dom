@@ -486,12 +486,10 @@ export class ChatAiService implements OnModuleInit {
     private currentLanguage: Lang = 'ru'; // (псевдоним типа Lang)
     private readonly TEXT_CACHE_DIR = path.join(process.cwd(), '.pdf-cache');
     private readonly INDEX_DIR = path.join(process.cwd(), '.rag-index');
-    
-    // ---- Новые свойства с конфигурацией и правилами ----
     private readonly RAG_CHUNK_SIZE = 900;
     private readonly RAG_CHUNK_OVERLAP = 420;
-    private readonly RAG_VECTOR_TOPK = 12;
-    private readonly RAG_HARD_CONTEXT_LIMIT = 16000;
+    private readonly RAG_VECTOR_TOPK = 12; // Базовое значение
+    private readonly RAG_HARD_CONTEXT_LIMIT = 24000; // Увеличенный лимит
     private readonly keywordToFileMap = [
         { "keywords": ["определение", "термин", "что такое", "понятие", "означает"], "files": ["СТ РК 2966-2023.pdf.txt", "Закон Республики Казахстан от 15 июля 2025 года № 207-VIII О внесении изменений и дополнений в некоторые законодательные акты.pdf.txt"] },
         { "keywords": ["капитальный ремонт", "капремонт", "модернизация", "реконструкция"], "files": ["СТ РК 2978-2023 Жилищно-коммунальное хозяйство. Проведение капитального ремонта общего имущества объекта кондоминиума. Общие тре.pdf.txt", "Закон Республики Казахстан от 15 июля 2025 года № 207-VIII О внесении изменений и дополнений в некоторые законодательные акты.pdf.txt", "СТ РК 2979-2017.pdf.txt"] },
@@ -540,42 +538,40 @@ export class ChatAiService implements OnModuleInit {
     }
 
     private async initializeVectorStore() {
-        this.logger.log('Initializing Vector Store...');
+        this.logger.log('Инициализация векторного хранилища...');
         if (!fs.existsSync(this.INDEX_DIR)) fs.mkdirSync(this.INDEX_DIR, { recursive: true });
-    
+
         const splitter = new RecursiveCharacterTextSplitter({
             chunkSize: this.RAG_CHUNK_SIZE,
             chunkOverlap: this.RAG_CHUNK_OVERLAP,
-            separators: ["\n\n", "\n", ". ", " "],
+            separators: ["\n\nСтатья", "\n\nРаздел", "\n\nОпределение", "\n\n", "\n", ". "],
         });
-    
+
         const allFiles = fs.readdirSync(this.TEXT_CACHE_DIR).filter(f => f.endsWith('.txt'));
         const rawDocs = allFiles.map(file => new Document({
             pageContent: fs.readFileSync(path.join(this.TEXT_CACHE_DIR, file), 'utf-8'),
             metadata: { source: file }
         }));
-        
-        // Добавляем chunkIndex к метаданным
-        const chunkedDocs: Document[] = [];
+
+        let chunkedDocs: Document[] = [];
         for (const doc of rawDocs) {
             const parts = await splitter.splitDocuments([doc]);
             parts.forEach((p, idx) => {
-                p.metadata = { ...(p.metadata || {}), chunkIndex: idx };
+                p.metadata = { ...p.metadata, chunkIndex: idx };
                 chunkedDocs.push(p);
             });
         }
         this.allDocs = chunkedDocs;
-    
-        // Проверяем наличие индекса
+
         if (fs.existsSync(path.join(this.INDEX_DIR, 'docstore.json'))) {
-            this.logger.log('Loading existing index from disk...');
+            this.logger.log('Загрузка существующего индекса с диска...');
             this.vectorStore = await HNSWLib.load(this.INDEX_DIR, this.embeddings);
         } else {
-            this.logger.log(`Creating new index with ${this.allDocs.length} chunks...`);
+            this.logger.log(`Создание нового индекса из ${this.allDocs.length} чанков...`);
             this.vectorStore = await HNSWLib.fromDocuments(this.allDocs, this.embeddings);
             await this.vectorStore.save(this.INDEX_DIR);
         }
-        this.logger.log('Vector Store ready.');
+        this.logger.log('Векторное хранилище готово.');
     }
 
     private loadAndValidateTemplates() {
@@ -650,87 +646,72 @@ export class ChatAiService implements OnModuleInit {
             await this.chatHistoryService.addMessageToHistory(userId, prompt, msg, ChatType.GENERAL);
             return msg;
         }
-        const mappedFiles = this.getRelevantSourceFiles(prompt);
-        let docsForSearch = mappedFiles.length > 0
+        let mappedFiles = this._getRelevantSourceFiles(prompt);
+        if (this._isLegalQuestion(prompt)) {
+            mappedFiles = [...new Set([...mappedFiles, ...this.BASE_LAW_FILES])];
+        }
+
+        const docsForSearch = mappedFiles.length > 0
             ? this.allDocs.filter(d => mappedFiles.includes(d.metadata.source as string))
             : this.allDocs;
-            
-        if (this._isLegalQuestion(prompt)) {
-            const lawDocs = this.allDocs.filter(d => this.BASE_LAW_FILES.includes(d.metadata.source as string));
-            docsForSearch = [...new Set([...docsForSearch, ...lawDocs])];
-        }
-    
+
         const retrieved = await this._getRelevantDocs(prompt, docsForSearch);
         const context = this._buildContext(retrieved);
-        const answer = await this.generateFinalAnswer(prompt, context, language);
-    
+        const answer = await this._generateFinalAnswer(prompt, context, language);
+
         await this.chatHistoryService.addMessageToHistory(userId, prompt, answer, ChatType.GENERAL);
         return answer;
     }
-    
+
     private async _getRelevantDocs(question: string, docsForSearch: Document[]): Promise<Document[]> {
-        if (!this.vectorStore || docsForSearch.length === 0) return [];
-    
+        if (!this.vectorStore) return [];
+
         const terms = this._extractSearchTerms(question);
+        const dynamicTopK = Math.max(20, terms.length * 5);
+
         const { strong, weak } = this._keywordSearch(terms, docsForSearch);
-    
-        // Векторный поиск по всему индексу, с последующей фильтрацией
-        const vectorResults = await this.vectorStore.similaritySearch(question, this.RAG_VECTOR_TOPK);
-        const docsForSearchSources = new Set(docsForSearch.map(d => d.metadata.source));
-        const filteredVectorResults = vectorResults.filter(doc => docsForSearchSources.has(doc.metadata.source));
-    
-        // Объединяем результаты: приоритет у keyword-поиска
-        const combined = [...new Set([...strong, ...weak, ...filteredVectorResults])];
-    
+        this.logger.log(`[RAG] Keyword Search: ${strong.length} strong, ${weak.length} weak hits.`);
+
+        const vectorResults = await this.vectorStore.similaritySearch(question, dynamicTopK);
+        const vectorSources = new Set(docsForSearch.map(d => d.metadata.source));
+        const filteredVector = vectorResults.filter(doc => vectorSources.has(doc.metadata.source));
+        this.logger.log(`[RAG] Vector Search: ${filteredVector.length} hits after filtering.`);
+
+        const combined = [...new Set([...strong, ...weak, ...filteredVector])];
         if (combined.length === 0) {
-            this.logger.warn(`Zero hits for query: "${question}"`);
+            this.logger.warn(`[RAG] Zero hits for query: "${question}".`);
             return [];
         }
-    
-        // FULL_DOC expansion: если найден хотя бы один чанк, тянем весь документ
+
         const sources = new Set(combined.map(d => d.metadata.source as string));
         const expanded = this.allDocs.filter(d => sources.has(d.metadata.source as string));
-        
-        this.logger.debug(`Expanded to ${expanded.length} docs from ${sources.size} sources.`);
+        this.logger.log(`[RAG] Context expanded to ${expanded.length} chunks from ${sources.size} sources.`);
         return expanded;
     }
-    
+
     private _buildContext(docs: Document[]): string {
         if (docs.length === 0) return 'НЕТ РЕЛЕВАНТНЫХ ДАННЫХ';
-        
-        // Группируем чанки по источнику
-        const bySource = docs.reduce((acc, doc) => {
-            const source = doc.metadata.source as string;
-            if (!acc[source]) acc[source] = [];
-            acc[source].push(doc.pageContent);
-            return acc;
-        }, {} as Record<string, string[]>);
-    
-        // Собираем контекст, соединяя чанки одного документа
-        let context = Object.entries(bySource)
-            .map(([source, contents]) => `ИСТОЧНИК: ${source}\n${contents.join('\n')}`)
-            .join('\n\n---\n\n');
-    
+        const context = docs.map(d => `ИСТОЧНИК: ${d.metadata.source}\n${d.pageContent}`).join('\n\n---\n\n');
         if (context.length > this.RAG_HARD_CONTEXT_LIMIT) {
-            context = context.slice(0, this.RAG_HARD_CONTEXT_LIMIT) + "\n... (контекст был сокращен)";
+            return context.slice(0, this.RAG_HARD_CONTEXT_LIMIT) + "\n... (контекст был сокращен)";
         }
         return context;
     }
-    
+
     private _extractSearchTerms(question: string): string[] {
         return question.toLowerCase()
             .replace(/[^а-яa-z0-9\s]/g, '')
             .split(/\s+/)
             .filter(w => w.length > 3 && !['что', 'такое', 'какие', 'где', 'как', 'это', 'для', 'или'].includes(w));
     }
-    
+
     private _keywordSearch(terms: string[], docs: Document[]): { strong: Document[], weak: Document[] } {
         if (terms.length === 0) return { strong: [], weak: [] };
         const strong = docs.filter(d => terms.every(t => d.pageContent.toLowerCase().includes(t)));
         const weak = docs.filter(d => terms.some(t => d.pageContent.toLowerCase().includes(t)));
         return { strong, weak };
     }
-    
+
     private _isLegalQuestion(prompt: string): boolean {
         return /обязанности|права|согласно|закон|стандарт/i.test(prompt);
     }
@@ -778,31 +759,31 @@ export class ChatAiService implements OnModuleInit {
         return merged;
     }
 
-    private async getRelevantDocsAccurate(question: string, topK: number, docsForSearch: Document[]): Promise<Document[]> {
+    private async _getRelevantDocsAccurate(question: string, topK: number, docsForSearch: Document[]): Promise<Document[]> {
         if (!this.vectorStore || docsForSearch.length === 0) return [];
-    
+
         const terms = this.extractSearchTerms(question);
         const { strong, weak } = this.keywordSearch(terms, docsForSearch);
-    
+
         // 1. Векторный поиск по ВСЕМУ индексу
         const queryEmbedding = await this.embeddings.embedQuery(question);
         const vectorResultsWithScore = await this.vectorStore.similaritySearchVectorWithScore(queryEmbedding, topK * 2);
-    
+
         // 2. Фильтруем результаты, оставляя только те, что из нужных нам документов
         const docsForSearchSources = new Set(docsForSearch.map(d => d.metadata.source));
-        const filteredVectorResults = vectorResultsWithScore.filter(([doc, _score]) => 
+        const filteredVectorResults = vectorResultsWithScore.filter(([doc, _score]) =>
             docsForSearchSources.has(doc.metadata.source)
         );
-        
+
         // 3. Объединяем результаты
         const combined = this.mergeAndRankResults(strong, weak, filteredVectorResults.map(([doc, _score]) => doc));
-    
+
         if (combined.length === 0) return [];
-    
+
         // 4. Расширяем до целых документов
         const sources = Array.from(new Set(combined.map(d => d.metadata.source as string)));
         const expanded = this.allDocs.filter(d => sources.includes(d.metadata.source as string));
-    
+
         const bySourceThenChunk = (a: Document, b: Document) => {
             if (a.metadata.source !== b.metadata.source) return String(a.metadata.source).localeCompare(String(b.metadata.source));
             return (a.metadata.chunkIndex ?? 0) - (b.metadata.chunkIndex ?? 0);
@@ -810,7 +791,7 @@ export class ChatAiService implements OnModuleInit {
         return expanded.sort(bySourceThenChunk);
     }
 
-    private async generateFinalAnswer(prompt: string, context: string, language: Lang): Promise<string> {
+    private async _generateFinalAnswer(prompt: string, context: string, language: Lang): Promise<string> {
         const strictNoDataRu = 'В предоставленных документах нет точной информации по вашему вопросу.';
         const strictNoDataKz = 'Берілген құжаттарда бұл сұрақ бойынша нақты ақпарат жоқ.';
         const advisoryRu = 'В моей базе нет точной нормы, но могу дать общий совет:';
@@ -829,7 +810,7 @@ ${context}
         return this.generateWithRetry(sys);
     }
 
-    private getRelevantSourceFiles(question: string): string[] {
+    private _getRelevantSourceFiles(question: string): string[] {
         const lower = question.toLowerCase();
         const matched = new Set<string>();
         for (const rule of this.keywordToFileMap) {
