@@ -3,12 +3,14 @@
  * @description Сервис, реализующий логику аутентификации пользователей.
  */
 
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { MailService } from '../mail/mail.service';
 import * as crypto from 'crypto';
+
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class AuthService {
@@ -16,6 +18,7 @@ export class AuthService {
     private usersService: UsersService,
     private jwtService: JwtService,
     private mailService: MailService,
+    private configService: ConfigService, // <-- ДОБАВЛЯЕМ ЭТО
   ) {}
 
   /**
@@ -41,9 +44,53 @@ export class AuthService {
    */
   async login(user: any) {
     const payload = { email: user.email, sub: user.id, tariff: user.tariff };
+    
+    // Создаем оба токена
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(payload, {
+        secret: this.configService.get<string>('JWT_SECRET'),
+        expiresIn: '1h', // Access token живет 1 час
+      }),
+      this.jwtService.signAsync(payload, {
+        secret: this.configService.get<string>('JWT_REFRESH_SECRET'), // Используем другой секрет!
+        expiresIn: '7d', // Refresh token живет 7 дней
+      }),
+    ]);
+
+    // Хэшируем и сохраняем refresh token в базу
+    await this.usersService.setCurrentRefreshToken(refreshToken, user.id);
+
     return {
-      access_token: this.jwtService.sign(payload),
+      accessToken,
+      refreshToken,
     };
+  }
+
+  // --- ДОБАВЛЯЕМ НОВЫЙ МЕТОД REFRESH ---
+  async refreshTokens(userId: number, refreshToken: string) {
+    const user = await this.usersService.findOneById(userId);
+    if (!user || !user.currentHashedRefreshToken) {
+      throw new ForbiddenException('Access Denied');
+    }
+
+    // Проверяем, совпадает ли присланный токен с тем, что в базе
+    const refreshTokenMatches = await bcrypt.compare(
+      refreshToken,
+      user.currentHashedRefreshToken,
+    );
+
+    if (!refreshTokenMatches) {
+      throw new ForbiddenException('Access Denied');
+    }
+
+    // Все в порядке, выдаем новую пару токенов
+    const newTokens = await this.login(user); // Переиспользуем логику login
+    return newTokens;
+  }
+
+  // --- ДОБАВЛЯЕМ НОВЫЙ МЕТОД LOGOUT ---
+  async logout(userId: number) {
+    return this.usersService.setCurrentRefreshToken(null, userId);
   }
 
   async forgotPassword(email: string): Promise<{ message: string }> {

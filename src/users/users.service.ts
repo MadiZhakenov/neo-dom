@@ -276,6 +276,19 @@ async updateDocChatState(userId: number, nextQuestionIndex: number, pendingData:
   });
 }
 
+async setCurrentRefreshToken(refreshToken: string | null, userId: number) {
+  if (refreshToken) {
+    const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
+    await this.usersRepository.update(userId, {
+      currentHashedRefreshToken: hashedRefreshToken,
+    });
+  } else {
+    await this.usersRepository.update(userId, {
+      currentHashedRefreshToken: null,
+    });
+  }
+}
+
 /**
 * Полностью сбрасывает состояние диалога генерации документа.
 */

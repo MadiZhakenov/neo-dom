@@ -58,6 +58,9 @@ export class User {
   doc_chat_pending_data: Record<string, any>;
 
   // Добавляем связь с сообщениями чата
+  @Column({ type: 'varchar', nullable: true, default: null })
+  currentHashedRefreshToken?: string | null;
+  
   @OneToMany(() => ChatMessage, (message) => message.user)
   chatMessages: ChatMessage[];
 }
