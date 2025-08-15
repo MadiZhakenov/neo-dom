@@ -20,8 +20,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       secretOrKey: secret,
     });
   }
-
   async validate(payload: any) {
+    // Мы возвращаем объект с полем `userId`
     return { userId: payload.sub, email: payload.email, tariff: payload.tariff };
   }
 }
