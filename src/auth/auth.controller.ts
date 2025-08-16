@@ -7,6 +7,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { JwtRefreshGuard } from './jwt-refresh.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -21,11 +22,11 @@ export class AuthController {
     return this.authService.login(user);
   }
 
-  @UseGuards(JwtAuthGuard) // Защищаем его
+  @UseGuards(JwtRefreshGuard) // <-- ИСПОЛЬЗУЕМ НОВОГО ОХРАННИКА
   @Post('refresh')
   async refresh(@Request() req) {
-    const userId = req.user.userId; // Берем ID из полезной нагрузки токена
-    const refreshToken = req.body.refreshToken; // Предполагаем, что токен придет в теле
+    const userId = req.user.sub; // В новой стратегии ID снова будет в `sub`
+    const refreshToken = req.user.refreshToken; // Достаем его из `req.user`, а не из body
     return this.authService.refreshTokens(userId, refreshToken);
   }
 
