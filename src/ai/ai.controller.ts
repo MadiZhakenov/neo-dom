@@ -78,12 +78,10 @@ export class AiController {
       const isPremium = user.tariff === 'Премиум' && user.subscription_expires_at && user.subscription_expires_at > new Date();
   
       if (!isPremium) {
-          // Определяем язык запроса пользователя, чтобы ответить на том же языке
-          const language = await this.chatAiService.detectLanguage(generateDto.prompt);
-          
-          const messageText = language === 'kz'
-              ? `"ЖИ-Құжаттар" бөліміне қол жеткізу үшін белсенді Премиум жазылымы қажет. Профиліңізде жазылымды ресімдеңіз.`
-              : `Для доступа к "ИИ-Документам" требуется активная Премиум-подписка. Пожалуйста, оформите подписку в вашем профиле.`;
+          // Формируем сообщение сразу на двух языках
+          const messageText = `"ЖИ-Құжаттар" бөліміне қол жеткізу үшін белсенді Премиум жазылымы қажет. Профиліңізде жазылымды ресімдеңіз.
+  ---
+  Для доступа к "ИИ-Документам" требуется активная Премиум-подписка. Пожалуйста, оформите подписку в вашем профиле.`;
               
           const accessDeniedMessage = {
               type: 'chat',
@@ -104,8 +102,7 @@ export class AiController {
           // Отправляем ответ
           return res.status(200).json({ aiResponse: accessDeniedMessage.content });
       }
-  
-  
+      
       // --- НАЧАЛО НОВОЙ, ИСПРАВЛЕННОЙ И НАДЕЖНОЙ ЛОГИКИ ---
       // 1. Вызываем единый "умный" метод в сервисе, который сделает всю работу.
       const response = await this.documentAiService.processDocumentMessage(generateDto.prompt, user);
