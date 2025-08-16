@@ -295,20 +295,6 @@ export class DocumentAiService implements OnModuleInit {
             } else {
                 let finalData = newData;
 
-                // (Логика проверки лимитов и сохранения файла)
-                if (user.tariff === 'Базовый') {
-                    const now = new Date();
-                    if (user.last_generation_date) {
-                        const lastGen = new Date(user.last_generation_date);
-                        if (lastGen.getFullYear() === now.getFullYear() && lastGen.getMonth() === now.getMonth()) {
-                            const templateLanguage = TEMPLATES_REGISTRY[user.doc_chat_template]?.language || 'ru';
-                            const message = templateLanguage === 'kz' ? "Сіздің тегін құжат жасау лимитіңіз бітті." : "Ваш лимит на бесплатные документы исчерпан.";
-                            await this.usersService.resetDocChatState(userId);
-                            return { type: 'chat', content: { action: 'clarification', message } };
-                        }
-                    }
-                }
-
                 const parseDate = (dateString: string) => {
                     if (!dateString || typeof dateString !== 'string') return { day: '', month: '', year: '' };
                     // Простая регулярка для формата "25 июля 2025" или "25.07.2025"
