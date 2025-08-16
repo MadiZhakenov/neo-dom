@@ -66,18 +66,49 @@ export class AiController {
   @UseGuards(JwtAuthGuard)
   @Post('documents')
   async handleDocumentChat(
-    @Request() req,
-    @Body() generateDto: GenerateDocumentDto,
-    @Res() res: Response,
+      @Request() req,
+      @Body() generateDto: GenerateDocumentDto,
+      @Res() res: Response,
   ) {
-    const userId = req.user.userId;
-    const user = await this.usersService.findOneById(userId);
-    if (!user) { throw new NotFoundException('Пользователь не найден.'); }
-
-    // --- НАЧАЛО НОВОЙ, ИСПРАВЛЕННОЙ И НАДЕЖНОЙ ЛОГИКИ ---
-
-    // 1. Вызываем единый "умный" метод в сервисе, который сделает всю работу.
-    const response = await this.documentAiService.processDocumentMessage(generateDto.prompt, user);
+      const userId = req.user.userId;
+      const user = await this.usersService.findOneById(userId);
+      if (!user) { throw new NotFoundException('Пользователь не найден.'); }
+  
+      // --- НОВАЯ ПРОВЕРКА НА ПРЕМИУМ-ПОДПИСКУ ---
+      const isPremium = user.tariff === 'Премиум' && user.subscription_expires_at && user.subscription_expires_at > new Date();
+  
+      if (!isPremium) {
+          // Определяем язык запроса пользователя, чтобы ответить на том же языке
+          const language = await this.chatAiService.detectLanguage(generateDto.prompt);
+          
+          const messageText = language === 'kz'
+              ? `"ЖИ-Құжаттар" бөліміне қол жеткізу үшін белсенді Премиум жазылымы қажет. Профиліңізде жазылымды ресімдеңіз.`
+              : `Для доступа к "ИИ-Документам" требуется активная Премиум-подписка. Пожалуйста, оформите подписку в вашем профиле.`;
+              
+          const accessDeniedMessage = {
+              type: 'chat',
+              content: {
+                  action: 'clarification',
+                  message: messageText,
+              },
+          };
+  
+          // Сохраняем в историю
+          await this.chatHistoryService.addMessageToHistory(
+              userId,
+              generateDto.prompt,
+              accessDeniedMessage.content.message,
+              ChatType.DOCUMENT
+          );
+  
+          // Отправляем ответ
+          return res.status(200).json({ aiResponse: accessDeniedMessage.content });
+      }
+  
+  
+      // --- НАЧАЛО НОВОЙ, ИСПРАВЛЕННОЙ И НАДЕЖНОЙ ЛОГИКИ ---
+      // 1. Вызываем единый "умный" метод в сервисе, который сделает всю работу.
+      const response = await this.documentAiService.processDocumentMessage(generateDto.prompt, user);
 
     // 2. Формируем контент ответа модели для сохранения.
     const modelResponseContent = response.historyContent || (response.type === 'file'
