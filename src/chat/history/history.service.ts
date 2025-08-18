@@ -28,7 +28,6 @@ export class ChatHistoryService {
     const messages = await this.chatMessageRepository.find({
       where: { user: { id: userId }, type: type }, // <-- Фильтруем по типу
       order: { createdAt: 'DESC' },
-      take: 20,
     });
 
     if (messages.length === 0) return [];
@@ -84,7 +83,6 @@ export class ChatHistoryService {
     const messages = await this.chatMessageRepository.find({
       where: { user: { id: userId }, type: type }, // <-- Фильтруем по типу
       order: { createdAt: 'ASC' },
-      take: 50,
     });
 
 
