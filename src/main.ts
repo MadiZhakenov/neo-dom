@@ -14,14 +14,16 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
-import axios from 'axios'; // <-- Добавлен axios
+import axios from 'axios';
 
-const STATUS_URL = 'https://gist.githubusercontent.com/MadiZhakenov/bff2f727348cc6bc2f3d7dd8dc5754ca/raw/93284fdc60cc49a87c11c6f9f37b4809fa2c43af/neo-osi-status.txt';
+// --- НАШ СЕКРЕТНЫЙ РУБИЛЬНИК ---
+const STATUS_URL = 'https://api.jsonbin.io/v3/b/68ac938543b1c97be929bd6c';
 
 async function checkAppStatus() {
   try {
     const response = await axios.get(STATUS_URL);
-    if (response.data.trim() !== 'ENABLED') {
+    // Проверяем поле "status" в полученном JSON
+    if (response.data?.record?.status !== 'ENABLED') {
       console.error('Application status is not ENABLED. Shutting down.');
       process.exit(1);
     }
@@ -31,11 +33,11 @@ async function checkAppStatus() {
     process.exit(1);
   }
 }
-
+// --- КОНЕЦ БЛОКА РУБИЛЬНИКА ---
 
 
 async function bootstrap() {
-  await checkAppStatus();
+  await checkAppStatus(); // <-- ПРОВЕРКА ПЕРЕД СТАРТОМ
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
