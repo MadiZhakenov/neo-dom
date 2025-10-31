@@ -1,4 +1,3 @@
-// src\auth\auth.module.ts
 import { Module } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
@@ -9,14 +8,12 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtStrategy } from './jwt.strategy';
 import { JwtRefreshStrategy } from './jwt-refresh.strategy';
 
-// 1. ИМПОРТИРУЙ НОВЫЙ МОДУЛЬ
 import { MailModule } from '../mail/mail.module';
 
 @Module({
   imports: [
     UsersModule,
     PassportModule,
-    // 2. ДОБАВЬ ЕГО В СПИСОК ИМПОРТОВ
     MailModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

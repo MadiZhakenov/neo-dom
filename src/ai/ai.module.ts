@@ -1,8 +1,3 @@
-/**
- * @file src/ai/ai.module.ts
- * @description Модуль, инкапсулирующий всю функциональность AI-ассистента.
- */
-
 import { Module } from '@nestjs/common';
 import { AiController } from './ai.controller';
 import { UsersModule } from '../users/users.module';

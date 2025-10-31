@@ -1,9 +1,3 @@
-/**
- * @file src/users/users.service.ts
- * @description Сервис для управления данными пользователей в базе данных.
- * Инкапсулирует всю логику работы с сущностью User.
- */
-
 import { Injectable, UnauthorizedException, NotFoundException, ForbiddenException} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
@@ -18,11 +12,6 @@ export class UsersService {
     private readonly usersRepository: Repository<User>,
   ) {}
 
-  /**
-   * Проверяет, может ли пользователь сгенерировать документ, и обновляет счетчик.
-   * Выбрасывает исключение, если лимит исчерпан.
-   * @param userId - ID пользователя.
-   */
   async checkAndIncrementGeneration(userId: number): Promise<void> {
     const user = await this.usersRepository.findOneBy({ id: userId });
 
@@ -33,11 +22,6 @@ export class UsersService {
   }
 
 
-  /*
-   * Создает нового пользователя, хэширует пароль и сохраняет в базу данных.
-   * @param createUserDto - DTO с email и паролем нового пользователя.
-   * @returns Созданный объект пользователя без хэша пароля.
-   */
   async create(createUserDto: CreateUserDto): Promise<Omit<User, 'password_hash'>> {
     const salt = await bcrypt.genSalt();
     const hashedPassword = await bcrypt.hash(createUserDto.password, salt);
@@ -52,21 +36,10 @@ export class UsersService {
     return result;
   }
 
-  /**
-   * Находит пользователя в базе данных по его email.
-   * @param email - Email пользователя для поиска.
-   * @returns Объект пользователя или null, если пользователь не найден.
-   */
   async findOneByEmail(email: string): Promise<User | null> {
     return this.usersRepository.findOne({ where: { email } });
   }
 
-  /**
-   * Увеличивает счетчик генераций на 1 и обновляет дату последней генерации.
-   * Этот метод устарел и был заменен на setLastGenerationDate для новой логики лимитов.
-   * @param userId - ID пользователя.
-   * @deprecated
-   */
   async incrementGenerationCount(userId: number): Promise<void> {
     await this.usersRepository.update(userId, {
       generation_count: () => 'generation_count + 1',
@@ -74,67 +47,38 @@ export class UsersService {
     });
   }
 
-  /**
-   * Сбрасывает счетчик генераций пользователя.
-   * @param userId - ID пользователя.
-   * @deprecated
-   */
   async resetGenerationCount(userId: number): Promise<void> {
     await this.usersRepository.update(userId, {
       generation_count: 0,
     });
   }
 
-  /**
-   * Сбрасывает лимиты генерации для пользователя по email (для отладки).
-   * @param email - Email пользователя.
-   * @returns Обновленный объект пользователя или null.
-   */
   async resetGenerationsByEmail(email: string): Promise<User | null> {
     const user = await this.findOneByEmail(email);
     if (!user) {
       return null;
     }
   
-    // 1. Сбрасываем счетчик
     user.generation_count = 0;
     user.last_generation_date = null;
     
-    // 2. Активируем премиум
     user.tariff = 'Премиум';
     const expirationDate = new Date();
-    expirationDate.setFullYear(expirationDate.getFullYear() + 1); // Даем премиум на 1 год
+    expirationDate.setFullYear(expirationDate.getFullYear() + 1);
     user.subscription_expires_at = expirationDate;
   
-    // 3. Возвращаем обновленного пользователя
     return this.usersRepository.save(user);
   }
-  /**
-   * Находит пользователя в базе данных по его ID.
-   * @param id - ID пользователя.
-   * @returns Объект пользователя или null.
-   */
   async findOneById(id: number): Promise<User | null> {
     return this.usersRepository.findOneBy({ id });
   }
 
-  /**
-   * Устанавливает дату последней успешной генерации документа.
-   * Используется для новой логики лимитов (1 генерация в месяц).
-   * @param userId - ID пользователя.
-   * @param date - Текущая дата.
-   */
   async setLastGenerationDate(userId: number, date: Date): Promise<void> {
     await this.usersRepository.update(userId, {
       last_generation_date: date,
     });
   }
 
-  /**
-   * Активирует премиум-статус для пользователя.
-   * @param userId - ID пользователя.
-   * @param expirationDate - Дата, до которой действует подписка.
-   */
   async activatePremium(userId: number, expirationDate: Date): Promise<void> {
     await this.usersRepository.update(userId, {
       tariff: 'Премиум',
@@ -142,19 +86,12 @@ export class UsersService {
     });
   }
 
-  /**
-   * Деактивирует премиум-статус (возвращает к базовому).
-   * @param userId - ID пользователя.
-   */
   async deactivatePremium(userId: number): Promise<void> {
     await this.usersRepository.update(userId, {
       tariff: 'Базовый',
       subscription_expires_at: null,
     });
   }
-  /**
-   * Устанавливает токен и время его жизни для сброса пароля.
-   */
   async setPasswordResetToken(userId: number, token: string, expires: Date): Promise<void> {
     await this.usersRepository.update(userId, {
       password_reset_token: token,
@@ -162,9 +99,6 @@ export class UsersService {
     });
   }
 
-  /**
-   * Находит пользователя по токену сброса пароля.
-   */
   async findOneByPasswordResetToken(token: string): Promise<User | null> {
     return this.usersRepository.findOne({
       where: {
@@ -173,9 +107,6 @@ export class UsersService {
     });
   }
 
-  /**
-   * Обновляет хэш пароля пользователя и очищает токены сброса.
-   */
   async updatePassword(userId: number, password_hash: string): Promise<void> {
     await this.usersRepository.update(userId, {
       password_hash: password_hash,
@@ -184,47 +115,28 @@ export class UsersService {
     });
   }
 
-  /**
-   * Позволяет авторизованному пользователю сменить свой пароль.
-   * @param userId - ID пользователя из JWT токена.
-   * @param oldPass - Текущий пароль для проверки.
-   * @param newPass - Новый пароль.
-   */
   async changePassword(userId: number, oldPass: string, newPass: string): Promise<{ message: string }> {
     const user = await this.usersRepository.findOneBy({ id: userId });
 
-    // --- ИСПРАВЛЕНИЕ 1: ДОБАВЛЯЕМ ПРОВЕРКУ ---
     if (!user) {
-      // Этого не должно случиться, если токен валидный, но проверка нужна
       throw new UnauthorizedException('Пользователь не найден.');
     }
     
-    // Теперь TypeScript знает, что после этой проверки 'user' не может быть null
     const isMatch = await bcrypt.compare(oldPass, user.password_hash);
-    // 2. Хэшируем и сохраняем новый пароль
     const salt = await bcrypt.genSalt();
     const newHash = await bcrypt.hash(newPass, salt);
 
     await this.usersRepository.update(userId, {
       password_hash: newHash,
-      // Сбрасываем флаг принудительной смены, если он был
       password_change_required: false,
     });
     
     return { message: 'Пароль успешно изменен.' };
   }
 
-  /**
-   * Находит всех пользователей с истекшей премиум-подпиской и меняет их тариф на "Базовый".
-   * Вызывается фоновой задачей (Cron Job).
-   * @returns Количество деактивированных пользователей.
-   */
   async deactivateExpiredPremiums(): Promise<number> {
     const now = new Date();
     
-    // 1. Находим всех пользователей, у которых:
-    //    - Тариф "Премиум"
-    //    - И дата истечения подписки УЖЕ ПРОШЛА (меньше, чем текущая)
     const expiredUsers = await this.usersRepository.find({
       where: {
         tariff: 'Премиум',
@@ -233,13 +145,11 @@ export class UsersService {
     });
 
     if (expiredUsers.length === 0) {
-      return 0; // Если таких нет, выходим
+      return 0;
     }
 
-    // 2. Получаем ID всех найденных пользователей
     const userIds = expiredUsers.map(user => user.id);
 
-    // 3. Одним запросом обновляем всем им тариф и сбрасываем дату
     await this.usersRepository.update(userIds, {
       tariff: 'Базовый',
       subscription_expires_at: null,
@@ -248,11 +158,6 @@ export class UsersService {
     return userIds.length;
   }
 
-  /**
-   * Получает и форматирует данные профиля для фронтенда.
-   * Включает актуальный статус подписки.
-   * @param userId - ID пользователя.
-   */
   async getUserProfile(userId: number) {
     const user = await this.findOneById(userId);
 
@@ -260,7 +165,6 @@ export class UsersService {
       throw new NotFoundException('Пользователь не найден.');
     }
     
-    // Определяем, активна ли подписка
     const isPremiumActive = user.tariff === 'Премиум' && user.subscription_expires_at && user.subscription_expires_at > new Date();
 
     return {
@@ -271,59 +175,45 @@ export class UsersService {
       role: user.role,
       subscription: {
         isActive: isPremiumActive,
-        // Если подписка активна, отдаем дату истечения, иначе null
         expiresAt: isPremiumActive ? user.subscription_expires_at : null,
       },
     };
   }
 
-  /**
- * Начинает новый диалог для генерации документа.
- * Устанавливает имя шаблона, сбрасывает счетчик вопросов и старые данные.
- */
-async startDocChat(userId: number, templateName: string): Promise<void> {
-  await this.usersRepository.update(userId, {
-      doc_chat_template: templateName,
-      doc_chat_question_index: 0, // Начинаем с первого вопроса
-      doc_chat_pending_data: {},  // Очищаем старые данные
-  });
-}
-
-/**
-* Обновляет состояние диалога: переходит к следующему вопросу и сохраняет накопленные данные.
-*/
-async updateDocChatState(userId: number, nextQuestionIndex: number, pendingData: Record<string, any>, requestId: string | null = null): Promise<void> {
-  await this.usersRepository.update(userId, {
-      doc_chat_question_index: nextQuestionIndex,
-      doc_chat_pending_data: pendingData,
-      doc_chat_request_id: requestId,
-  });
-}
-
-async setCurrentRefreshToken(refreshToken: string | null, userId: number) {
-  if (refreshToken) {
-    const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
+  async startDocChat(userId: number, templateName: string): Promise<void> {
     await this.usersRepository.update(userId, {
-      currentHashedRefreshToken: hashedRefreshToken,
-    });
-  } else {
-    await this.usersRepository.update(userId, {
-      currentHashedRefreshToken: null,
+        doc_chat_template: templateName,
+        doc_chat_question_index: 0,
+        doc_chat_pending_data: {},
     });
   }
-}
 
-/**
-* Полностью сбрасывает состояние диалога генерации документа.
-*/
-async resetDocChatState(userId: number): Promise<void> {
-  await this.usersRepository.update(userId, {
-      doc_chat_template: null,
-      // --- ИСПРАВЛЕНИЕ ---
-      doc_chat_question_index: 0, // Сбрасываем на 0, а не на null
-      // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
-      doc_chat_pending_data: {},
-  });
-}
+  async updateDocChatState(userId: number, nextQuestionIndex: number, pendingData: Record<string, any>, requestId: string | null = null): Promise<void> {
+    await this.usersRepository.update(userId, {
+        doc_chat_question_index: nextQuestionIndex,
+        doc_chat_pending_data: pendingData,
+        doc_chat_request_id: requestId,
+    });
+  }
 
+  async setCurrentRefreshToken(refreshToken: string | null, userId: number) {
+    if (refreshToken) {
+      const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
+      await this.usersRepository.update(userId, {
+        currentHashedRefreshToken: hashedRefreshToken,
+      });
+    } else {
+      await this.usersRepository.update(userId, {
+        currentHashedRefreshToken: null,
+      });
+    }
+  }
+
+  async resetDocChatState(userId: number): Promise<void> {
+    await this.usersRepository.update(userId, {
+        doc_chat_template: null,
+        doc_chat_question_index: 0,
+        doc_chat_pending_data: {},
+    });
+  }
 }

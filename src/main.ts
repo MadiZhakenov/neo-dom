@@ -1,4 +1,3 @@
-// src/main.ts
 import * as crypto from 'crypto';
 
 if (!global.crypto) {
@@ -19,14 +18,11 @@ import { ValidationPipe } from '@nestjs/common';
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
-  // Настраиваем раздачу статики (CSS, JS файлы, если будут)
   app.useStaticAssets(join(__dirname, '..', 'public'));
   
   app.useStaticAssets(join(process.cwd(), 'knowledge_base', 'templates'), { prefix: '/' });
   
-  // Указываем, где лежат наши "view" (шаблоны)
   app.setBaseViewsDir(join(__dirname, '..', 'views'));
-  // Устанавливаем hbs как движок для рендеринга
   app.setViewEngine('hbs');
   app.useGlobalPipes(new ValidationPipe());
   

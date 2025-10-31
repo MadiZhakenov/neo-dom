@@ -1,12 +1,10 @@
-// src/documents/documents.controller.ts
 import { Controller, Get, Post, Param, Body, Res, UseGuards, Request } from '@nestjs/common';
 import { DocumentsService } from './documents.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Response } from 'express';
-import { UsersService } from '../users/users.service'; // Импортируем для проверки лимитов
+import { UsersService } from '../users/users.service';
 import { IsNotEmpty, IsObject } from 'class-validator';
 
-// DTO для валидации входящих данных
 class GenerateDto {
   @IsObject()
   @IsNotEmpty()
@@ -17,7 +15,7 @@ class GenerateDto {
 export class DocumentsController {
   constructor(
     private readonly documentsService: DocumentsService,
-    private readonly usersService: UsersService, // Добавляем сервис пользователей
+    private readonly usersService: UsersService,
   ) {}
 
   @Get('templates')
@@ -42,7 +40,6 @@ export class DocumentsController {
   ) {
     const userId = req.user.userId;
 
-    // Проверяем лимиты перед генерацией
     await this.usersService.checkAndIncrementGeneration(userId);
 
     const { buffer, fileName } = this.documentsService.generateDocument(id, generateDto.data);

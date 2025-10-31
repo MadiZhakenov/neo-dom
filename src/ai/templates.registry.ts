@@ -1,5 +1,3 @@
-// src/ai/templates.registry.ts
-
 export const TEMPLATES_REGISTRY = {
     'agymdagy-zhondeu-zhurgizu-protsesinde-kalyptastyrilg-an-tekhnikalyk-zhane-oryndaushylyk-kuzhattamany-kabyldau-tapsyru-aktisinin-nysany.docx': {
         name: 'Ағымдағы жөндеу жүргізу процесінде қалыптастырылған техникалық жəне орындаушылық құжаттаманы қабылдау-тапсыру актісінің нысаны',

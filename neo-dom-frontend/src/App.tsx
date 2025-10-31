@@ -1,9 +1,6 @@
 import { useState, useEffect, FormEvent, useRef } from 'react';
 import axios from 'axios';
 
-// ==========================================================
-// API КЛИЕНТ
-// ==========================================================
 const apiClient = axios.create({ baseURL: 'http://localhost:3000' });
 
 apiClient.interceptors.request.use((config) => {
@@ -12,16 +9,11 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// ==========================================================
-// ИНТЕРФЕЙСЫ
-// ==========================================================
 interface Message {
   role: 'user' | 'model';
   content: string;
   createdAt?: string;
 }
-
-type ChatMode = 'chat' | 'docs';
 
 interface TemplateField {
   tag: string;
@@ -100,14 +92,8 @@ interface Task {
 
 interface UserProfile {
   email: string;
-  subscription: {
-    isActive: boolean;
-  };
 }
 
-// ==========================================================
-// КОМПОНЕНТ ДЛЯ ГЕНЕРАЦИИ ДОКУМЕНТОВ
-// ==========================================================
 function DocumentGenerator() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateData | null>(null);
@@ -440,9 +426,6 @@ function DocumentGenerator() {
   );
 }
 
-// ==========================================================
-// КОМПОНЕНТ ИИ-ЧАТА
-// ==========================================================
 function ChatInterface() {
   const [prompt, setPrompt] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
@@ -627,10 +610,6 @@ function ChatInterface() {
     </div>
   );
 }
-
-// ==========================================================
-// НОВЫЕ КОМПОНЕНТЫ-МОДУЛИ
-// ==========================================================
 
 function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
@@ -1031,42 +1010,40 @@ function Receipts() {
 
       {showQr && paymentTarget && (
         <>
-          {/* Полупрозрачный фон (оверлей) */}
           <div 
             className="fixed inset-0 backdrop-blur-sm z-50 animate-in fade-in"
             onClick={() => setShowQr(false)}
           />
           
-          {/* Само модальное окно, теперь центрируется независимо */}
-          <div className="fixed top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-sm p-2"> {/* max-w-md -> max-w-sm */}
-            <div className="bg-gradient-to-br from-slate-800/95 to-slate-900/95 backdrop-blur-xl p-6 rounded-3xl border border-slate-700/50 text-center shadow-2xl animate-in fade-in zoom-in duration-300"> {/* p-8 -> p-6 */}
+          <div className="fixed top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-sm p-2">
+            <div className="bg-gradient-to-br from-slate-800/95 to-slate-900/95 backdrop-blur-xl p-6 rounded-3xl border border-slate-700/50 text-center shadow-2xl animate-in fade-in zoom-in duration-300">
               
-              <h3 className="text-2xl font-bold bg-gradient-to-r from-amber-400 to-yellow-500 bg-clip-text text-transparent mb-3"> {/* text-3xl -> text-2xl, mb-4 -> mb-3 */}
+              <h3 className="text-2xl font-bold bg-gradient-to-r from-amber-400 to-yellow-500 bg-clip-text text-transparent mb-3">
                 Оплата через Kaspi.kz
               </h3>
               
-              <p className="text-sm text-slate-300 mb-4 leading-relaxed"> {/* Добавлен text-sm, mb-6 -> mb-4 */}
+              <p className="text-sm text-slate-300 mb-4 leading-relaxed">
                 Отсканируйте QR-код для быстрой и безопасной оплаты
               </p>
               
-              <div className="relative mb-4"> {/* mb-6 -> mb-4 */}
+              <div className="relative mb-4">
                 <img 
                   src="/kaspi-qr.png" 
                   alt="Kaspi QR Code" 
-                  className="w-56 h-56 mx-auto object-cover rounded-2xl shadow-2xl border-4 border-slate-700" /* w-64 h-64 -> w-56 h-56 */
+                  className="w-56 h-56 mx-auto object-cover rounded-2xl shadow-2xl border-4 border-slate-700"
                 />
-                <div className="absolute -inset-3 bg-gradient-to-r from-amber-500/20 to-yellow-500/20 rounded-3xl blur-lg animate-pulse"></div> {/* -inset-4 -> -inset-3, blur-xl -> blur-lg */}
+                <div className="absolute -inset-3 bg-gradient-to-r from-amber-500/20 to-yellow-500/20 rounded-3xl blur-lg animate-pulse"></div>
               </div>
               
-              <div className="text-lg mb-3 p-3 bg-gradient-to-r from-slate-800/50 to-slate-700/50 rounded-2xl border border-slate-600 text-white"> {/* text-xl -> text-lg, mb-6 -> mb-5 */}
-                Сумма к оплате: <strong className="bg-gradient-to-r from-amber-400 to-yellow-500 bg-clip-text text-transparent text-xl ml-1"> {/* text-2xl -> text-xl */}
+              <div className="text-lg mb-3 p-3 bg-gradient-to-r from-slate-800/50 to-slate-700/50 rounded-2xl border border-slate-600 text-white">
+                Сумма к оплате: <strong className="bg-gradient-to-r from-amber-400 to-yellow-500 bg-clip-text text-transparent text-xl ml-1">
                   {new Intl.NumberFormat('ru-RU').format(paymentTarget.amount)} ₸
                 </strong>
               </div>
               
-              <div className="space-y-3"> {/* space-y-4 -> space-y-3 */}
+              <div className="space-y-3">
                 <button 
-                  className="group relative w-full bg-gradient-to-r from-amber-500 to-yellow-500 text-white py-3 rounded-2xl font-semibold text-base transition-all duration-300 hover:shadow-xl hover:shadow-amber-500/25 hover:-translate-y-1 overflow-hidden" /* py-4 -> py-3, text-lg -> text-base, font-bold -> font-semibold */
+                  className="group relative w-full bg-gradient-to-r from-amber-500 to-yellow-500 text-white py-3 rounded-2xl font-semibold text-base transition-all duration-300 hover:shadow-xl hover:shadow-amber-500/25 hover:-translate-y-1 overflow-hidden"
                   onClick={handleConfirmPayment}
                 >
                   <span className="relative flex items-center justify-center gap-2">
@@ -1074,7 +1051,7 @@ function Receipts() {
                   </span>
                 </button>
                 <button 
-                  className="w-full bg-transparent border-2 border-slate-600 text-slate-300 py-3 rounded-2xl font-medium text-base transition-all duration-300 hover:border-slate-500 hover:text-white hover:bg-slate-800/50" /* py-4 -> py-3, добавлен text-base */
+                  className="w-full bg-transparent border-2 border-slate-600 text-slate-300 py-3 rounded-2xl font-medium text-base transition-all duration-300 hover:border-slate-500 hover:text-white hover:bg-slate-800/50"
                   onClick={() => setShowQr(false)}
                 >
                   Отмена
@@ -1242,9 +1219,6 @@ function Tasks() {
   );
 }
 
-// ==========================================================
-// ОСНОВНОЙ КОМПОНЕНТ APP
-// ==========================================================
 function App() {
   const [view, setView] = useState<'login' | 'register' | 'main'>('login');
   const [activeModule, setActiveModule] = useState('dashboard');
@@ -1270,8 +1244,7 @@ function App() {
     } catch (err) {
       console.error("Failed to fetch profile", err);
       setUserProfile({
-        email: 'user@example.com',
-        subscription: { isActive: true }
+        email: 'user@example.com'
       });
     }
   };
@@ -1433,10 +1406,8 @@ function App() {
             </div>
           </div>
           
-          {/* --- ЗАМЕНИТЕ НА ЭТОТ БЛОК --- */}
 <div className="flex items-center bg-gradient-to-r from-slate-800/50 to-slate-700/50 backdrop-blur-sm rounded-2xl border border-slate-600/50 overflow-hidden shadow-lg">
   
-  {/* Часть с профилем */}
   <div className="flex items-center gap-4 px-6 py-2">
     <div className="relative">
       <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center font-bold text-white text-lg shadow-lg shadow-cyan-500/25">
@@ -1449,10 +1420,8 @@ function App() {
     </div>
   </div>
 
-  {/* Разделитель */}
   <div className="w-px h-10 bg-slate-600"></div>
 
-  {/* Кнопка выхода */}
   <button 
     onClick={handleLogout} 
     className="group flex items-center gap-3 text-slate-300 px-6 py-4 transition-all duration-300 font-medium"

@@ -1,9 +1,3 @@
-/**
- * @file src/app.module.ts
- * @description Корневой модуль приложения NestJS.
- * Собирает все функциональные модули, настраивает конфигурацию и подключение к базе данных.
- */
-
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';

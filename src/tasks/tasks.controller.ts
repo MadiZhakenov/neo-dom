@@ -32,10 +32,9 @@ export class TasksController {
   @Post()
   async createTask(@Request() req, @Body() createTaskDto: CreateTaskDto) {
     const user = await this.usersService.findOneById(req.user.userId);
-    // Теперь description будет либо строкой, либо undefined, что нормально
     const newTask = this.taskRepo.create({ 
       ...createTaskDto, 
-      description: createTaskDto.description || '', // На случай если description не придет
+      description: createTaskDto.description || '',
       author: user, 
       status: TaskStatus.OPEN 
     });

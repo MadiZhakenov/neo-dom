@@ -75,7 +75,6 @@
   }
 }
 
-/* Современные анимации */
 @keyframes shake {
   0%, 100% { transform: translateX(0); }
   25% { transform: translateX(-5px); }
@@ -166,7 +165,6 @@
   animation-duration: 700ms;
 }
 
-/* Кастомный скроллбар с современным дизайном */
 .custom-scrollbar::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -194,61 +192,12 @@
   background: rgba(30, 41, 59, 0.3);
 }
 
-/* Firefox scrollbar */
 .custom-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: #06b6d4 rgba(30, 41, 59, 0.3);
 }
 
-/* Улучшенные эффекты для кнопок */
-@keyframes button-pulse {
-  0%, 100% {
-    box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.4);
-  }
-  50% {
-    box-shadow: 0 0 0 8px rgba(6, 182, 212, 0);
-  }
-}
 
-.animate-pulse-button {
-  animation: button-pulse 2s infinite;
-}
-
-/* Улучшенные градиенты для фона */
-.bg-mesh-gradient {
-  background: 
-    radial-gradient(circle at 20% 50%, rgba(14, 165, 233, 0.1) 0%, transparent 50%),
-    radial-gradient(circle at 80% 20%, rgba(168, 85, 247, 0.1) 0%, transparent 50%),
-    radial-gradient(circle at 40% 80%, rgba(6, 182, 212, 0.05) 0%, transparent 50%);
-}
-
-/* Стили для стеклянного эффекта */
-.glass-effect {
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.glass-effect-dark {
-  background: rgba(15, 23, 42, 0.8);
-  backdrop-filter: blur(20px);
-  border: 1px solid rgba(71, 85, 105, 0.3);
-}
-
-/* Улучшенные тени */
-.shadow-glow-cyan {
-  box-shadow: 0 0 20px rgba(6, 182, 212, 0.3);
-}
-
-.shadow-glow-purple {
-  box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
-}
-
-.shadow-glow-emerald {
-  box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
-}
-
-/* Responsive улучшения */
 @media (max-width: 768px) {
   .custom-scrollbar::-webkit-scrollbar {
     width: 6px;
@@ -256,40 +205,8 @@
   }
 }
 
-/* Улучшения для темной темы */
 @media (prefers-color-scheme: dark) {
   .custom-scrollbar::-webkit-scrollbar-track {
     background: rgba(15, 23, 42, 0.5);
   }
-}
-
-/* Анимации появления элементов */
-@keyframes slideInFromLeft {
-  from {
-    opacity: 0;
-    transform: translateX(-30px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes slideInFromRight {
-  from {
-    opacity: 0;
-    transform: translateX(30px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-.animate-slide-in-left {
-  animation: slideInFromLeft 0.6s ease-out;
-}
-
-.animate-slide-in-right {
-  animation: slideInFromRight 0.6s ease-out;
 }

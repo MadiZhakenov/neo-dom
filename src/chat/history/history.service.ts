@@ -1,8 +1,3 @@
-/**
- * @file src/chat/history/history.service.ts
- * @description Сервис для управления историей сообщений в чате с разделением по типам.
- */
-
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -19,14 +14,9 @@ export class ChatHistoryService {
     private readonly userRepository: Repository<User>,
   ) { }
 
-  /**
-   * Получает историю для конкретного типа чата.
-   * @param userId - ID пользователя.
-   * @param type - Тип чата ('chat' или 'document').
-   */
   async getHistory(userId: number, type: ChatType): Promise<Content[]> {
     const messages = await this.chatMessageRepository.find({
-      where: { user: { id: userId }, type: type }, // <-- Фильтруем по типу
+      where: { user: { id: userId }, type: type },
       order: { createdAt: 'DESC' },
     });
 
@@ -43,13 +33,6 @@ export class ChatHistoryService {
     }));
   }
 
-  /**
-   * Добавляет пару сообщений в историю для конкретного типа чата.
-   * @param userId - ID пользователя.
-   * @param userContent - Сообщение пользователя.
-   * @param modelContent - Ответ модели.
-   * @param type - Тип чата.
-   */
   async addMessageToHistory(userId: number, userContent: string, modelContent: string, type: ChatType): Promise<void> {
     const user = await this.userRepository.findOneBy({ id: userId });
     if (!user) {
@@ -61,14 +44,14 @@ export class ChatHistoryService {
       user,
       role: ChatMessageRole.USER,
       content: userContent,
-      type: type, // <-- Указываем тип
+      type: type,
     });
 
     const modelMessage = this.chatMessageRepository.create({
       user,
       role: ChatMessageRole.MODEL,
       content: modelContent,
-      type: type, // <-- Указываем тип
+      type: type,
     });
 
     await this.chatMessageRepository.save([userMessage, modelMessage]);
@@ -76,7 +59,7 @@ export class ChatHistoryService {
 
   async getHistoryForUser(userId: number, type: ChatType) {
     const messages = await this.chatMessageRepository.find({
-      where: { user: { id: userId }, type: type }, // <-- Фильтруем по типу
+      where: { user: { id: userId }, type: type },
       order: { createdAt: 'ASC' },
     });
 

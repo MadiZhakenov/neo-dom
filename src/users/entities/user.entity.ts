@@ -1,5 +1,3 @@
-// src\users\entities\user.entity.ts
-
 import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from 'typeorm';
 import { ChatMessage } from '../../chat/entities/chat-message.entity';
 
@@ -44,20 +42,18 @@ export class User {
   @Column({ type: 'int', default: 0 })
   generation_count: number;
 
-  // --- ВОЗВРАЩАЕМ ЭТИ ПОЛЯ, НО ТОЛЬКО ДЛЯ ДОКУМЕНТОВ ---
   @Column({ type: 'varchar', nullable: true, default: null })
-  doc_chat_template: string | null; // Новое имя
+  doc_chat_template: string | null;
 
   @Column({ type: 'varchar', nullable: true, default: null })
-  doc_chat_request_id: string | null; // Новое имя
+  doc_chat_request_id: string | null;
   
   @Column({ type: 'integer', nullable: true, default: 0 })
-  doc_chat_question_index: number; // Номер текущего вопроса (начиная с 0)
+  doc_chat_question_index: number;
 
   @Column({ type: 'jsonb', nullable: true, default: {} })
   doc_chat_pending_data: Record<string, any>;
 
-  // Добавляем связь с сообщениями чата
   @Column({ type: 'varchar', nullable: true, default: null })
   currentHashedRefreshToken?: string | null;
   

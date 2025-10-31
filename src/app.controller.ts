@@ -1,9 +1,3 @@
-/**
- * @file src/app.controller.ts
- * @description Корневой контроллер приложения.
- * Часто используется для проверки работоспособности (health check).
- */
-
 import { Controller, Get } from '@nestjs/common';
 import { AppService } from './app.service';
 

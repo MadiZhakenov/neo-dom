@@ -97,7 +97,6 @@ export class ApartmentController {
     const receipt = this.data.current.find(r => r.id === parseInt(id, 10));
     if (receipt) {
       receipt.status = 'paid';
-      // Пересчитываем общий долг после оплаты одной квитанции
       this.calculateTotalDebt();
     }
     return { message: 'OK' };

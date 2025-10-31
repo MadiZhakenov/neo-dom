@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression, Timeout } from '@nestjs/schedule'; // <-- Импортируем Timeout
+import { Cron, CronExpression, Timeout } from '@nestjs/schedule';
 import { UsersService } from '../users/users.service';
 
 @Injectable()
@@ -8,20 +8,12 @@ export class TasksService {
 
   constructor(private readonly usersService: UsersService) {}
 
-  /**
-   * Этот метод выполнится ОДИН РАЗ через 15 секунд после старта приложения.
-   * Это "отложенный" первый запуск, чтобы дать TypeORM время создать таблицы.
-   */
-  @Timeout(15000) // 15 секунд
+  @Timeout(15000)
   handleInitialCheck() {
     this.logger.log('Выполняется отложенная первоначальная проверка истекших подписок...');
     this.handleExpiredSubscriptions();
   }
 
-  /**
-   * Эта фоновая задача будет запускаться КАЖДЫЕ 10 МИНУТ.
-   * (Мы увеличиваем интервал, чтобы не спамить в логах).
-   */
   @Cron(CronExpression.EVERY_10_MINUTES)
   async handleExpiredSubscriptions() {
     this.logger.log('Запущена проверка истекших премиум-подписок...');

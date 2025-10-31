@@ -1,4 +1,3 @@
-// src/documents/entities/generated-document.entity.ts
 import { User } from "../../users/entities/user.entity";
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne } from "typeorm";
 
@@ -11,10 +10,10 @@ export class GeneratedDocument {
     user: User;
 
     @Column()
-    originalFileName: string; // e.g., "Акт приема-передачи.docx"
+    originalFileName: string;
 
     @Column()
-    storagePath: string; // e.g., "generated_documents/uuid-goes-here.docx"
+    storagePath: string;
 
     @CreateDateColumn()
     createdAt: Date;

@@ -1,8 +1,3 @@
-/**
- * @file src/users/users.controller.ts
- * @description Контроллер для управления эндпоинтами, связанными с пользователями.
- */
-
 import { Controller, Post, Body, Get, UseGuards, Request, Param, NotFoundException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -13,34 +8,18 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  /**
-   * Эндпоинт для регистрации нового пользователя.
-   * @param createUserDto - Данные для создания пользователя.
-   * @returns Созданный объект пользователя.
-   */
   @Post('register')
   create(@Body() createUserDto: CreateUserDto) {
     return this.usersService.create(createUserDto);
   }
 
-  /**
-   * Защищенный эндпоинт для получения данных профиля текущего пользователя.
-   * @param req - Запрос, содержащий payload из JWT токена.
-   * @returns Данные пользователя.
-   */
   @UseGuards(JwtAuthGuard)
   @Get('profile')
   async getProfile(@Request() req) {
     const userId = req.user.userId;
-    // Вызываем новый метод в UsersService
     return this.usersService.getUserProfile(userId);
   }
 
-  /**
-   * Защищенный эндпоинт для получения списка протоколов (пример).
-   * @param req - Запрос.
-   * @returns Статический список протоколов.
-   */
   @UseGuards(JwtAuthGuard)
   @Get('protocols')
   getProtocols(@Request() req) {
@@ -51,11 +30,6 @@ export class UsersController {
     ];
   }
 
-  /**
-   * Отладочный эндпоинт для сброса лимита генераций пользователя по email.
-   * @param email - Email пользователя.
-   * @returns Сообщение об успехе и обновленные данные пользователя.
-   */
   @Post('reset-limit/:email')
   async resetLimit(@Param('email') email: string) {
     console.log(`[DEBUG] Получен запрос на сброс лимита для пользователя: ${email}`);
@@ -73,13 +47,10 @@ export class UsersController {
     };
   }
 
-  /**
-   * Эндпоинт для смены пароля аутентифицированным пользователем.
-   */
-  @UseGuards(JwtAuthGuard) // <-- Защищаем эндпоинт, доступ только для залогиненных
+  @UseGuards(JwtAuthGuard)
   @Post('change-password')
   async changePassword(
-    @Request() req, // <-- Берем ID пользователя из токена
+    @Request() req,
     @Body() changePasswordDto: ChangePasswordDto,
   ) {
     const userId = req.user.userId;

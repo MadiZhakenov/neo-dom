@@ -1,5 +1,3 @@
-// src/auth/auth.controller.ts
-
 import { Controller, Post, Body, UnauthorizedException, Get, Res, Query, Render, Request } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -22,15 +20,13 @@ export class AuthController {
     return this.authService.login(user);
   }
 
-  @UseGuards(JwtRefreshGuard) // <-- ИСПОЛЬЗУЕМ НОВОГО ОХРАННИКА
+  @UseGuards(JwtRefreshGuard)
   @Post('refresh')
   async refresh(@Request() req) {
-    const userId = req.user.sub; // В новой стратегии ID снова будет в `sub`
-    const refreshToken = req.user.refreshToken; // Достаем его из `req.user`, а не из body
+    const userId = req.user.sub;
+    const refreshToken = req.user.refreshToken;
     return this.authService.refreshTokens(userId, refreshToken);
   }
-
-  // --- (Опционально) Эндпоинт для выхода ---
   @UseGuards(JwtAuthGuard)
   @Post('logout')
   async logout(@Request() req) {
@@ -48,15 +44,9 @@ export class AuthController {
     return this.authService.resetPassword(resetPasswordDto.token, resetPasswordDto.password);
   }
 
-  /**
-   * Этот эндпоинт обрабатывает GET-запрос по ссылке из письма.
-   * Он не делает ничего, кроме как перенаправляет пользователя на нашу HTML-страницу.
-   * @param res - Объект ответа Express.
-   */
   @Get('reset-password')
-  @Render('reset-password') // <-- Указываем, какой шаблон рендерить (без .hbs)
+  @Render('reset-password')
   showResetPasswordPage(@Query('token') token: string) {
-    // Просто передаем токен из URL в шаблон
     return { token };
   }
 }
