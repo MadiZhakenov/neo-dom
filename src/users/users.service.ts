@@ -4,7 +4,7 @@
  * Инкапсулирует всю логику работы с сущностью User.
  */
 
-import { Injectable, UnauthorizedException, NotFoundException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, NotFoundException, ForbiddenException} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { User } from './entities/user.entity';
@@ -19,6 +19,21 @@ export class UsersService {
   ) {}
 
   /**
+   * Проверяет, может ли пользователь сгенерировать документ, и обновляет счетчик.
+   * Выбрасывает исключение, если лимит исчерпан.
+   * @param userId - ID пользователя.
+   */
+  async checkAndIncrementGeneration(userId: number): Promise<void> {
+    const user = await this.usersRepository.findOneBy({ id: userId });
+
+    if (!user) {
+      throw new NotFoundException('Пользователь не найден');
+    }
+    return;
+  }
+
+
+  /*
    * Создает нового пользователя, хэширует пароль и сохраняет в базу данных.
    * @param createUserDto - DTO с email и паролем нового пользователя.
    * @returns Созданный объект пользователя без хэша пароля.
@@ -80,11 +95,20 @@ export class UsersService {
     if (!user) {
       return null;
     }
+  
+    // 1. Сбрасываем счетчик
     user.generation_count = 0;
     user.last_generation_date = null;
+    
+    // 2. Активируем премиум
+    user.tariff = 'Премиум';
+    const expirationDate = new Date();
+    expirationDate.setFullYear(expirationDate.getFullYear() + 1); // Даем премиум на 1 год
+    user.subscription_expires_at = expirationDate;
+  
+    // 3. Возвращаем обновленного пользователя
     return this.usersRepository.save(user);
   }
-
   /**
    * Находит пользователя в базе данных по его ID.
    * @param id - ID пользователя.

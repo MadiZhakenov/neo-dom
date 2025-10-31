@@ -5,8 +5,8 @@ const pdf = require('pdf-parse');
 
 const basePath = __dirname; // Используем директорию, где лежит сам скрипт
 console.log(`[Cache Script] Base path is: ${basePath}`);
-
 const knowledgeBaseDir = path.join(basePath, 'knowledge_base');
+// const knowledgeBaseDir = path.join(basePath, 'knowledge_base/templates/pdf_previews');
 const cacheDir = path.join(basePath, '.pdf-cache');
 
 async function createCache() {

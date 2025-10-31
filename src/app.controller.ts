@@ -11,10 +11,6 @@ import { AppService } from './app.service';
 export class AppController {
   constructor(private readonly appService: AppService) {}
 
-  /**
-   * Простой GET-эндпоинт, который возвращает приветственное сообщение.
-   * @returns Строка 'Hello World!'.
-   */
   @Get()
   getHello(): string {
     return this.appService.getHello();

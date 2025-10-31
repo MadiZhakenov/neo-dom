@@ -12,24 +12,22 @@ import { AppService } from './app.service';
 import { AiModule } from './ai/ai.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
-import { DataImportModule } from './data-import/data-import.module';
 import { ChatModule } from './chat/chat.module';
 import { DocumentsModule } from './documents/documents.module';
-import { SubscriptionsModule } from './subscriptions/subscriptions.module';
-import { FinanceModule } from './finance/finance.module';
 import { ScheduleModule } from '@nestjs/schedule';
-import { TasksModule } from './tasks/tasks.module';
 import { GeneratedDocument } from './documents/entities/generated-document.entity';
+import { DashboardModule } from './dashboard/dashboard.module';
+import { TasksModule } from './tasks/tasks.module';
+import { ApartmentModule } from './apartment/apartment.module'; 
 
 @Module({
   imports: [
     ScheduleModule.forRoot(),
-    // Глобальный модуль конфигурации для доступа к .env файлам
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
     }),
-    // Асинхронная настройка подключения к базе данных PostgreSQL
+
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -41,26 +39,25 @@ import { GeneratedDocument } from './documents/entities/generated-document.entit
         username: configService.get<string>('DB_USERNAME'),
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_DATABASE'),
-        // Переопределяем entities и migrations, чтобы они работали с TS-файлами в разработке
+
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
         migrations: [__dirname + '/migrations/*{.ts,.js}'],
-        synchronize: false, // ВНИМАНИЕ: true только для разработки. Автоматически применяет схему.
+        synchronize: false,
         logging: configService.get<string>('DB_LOGGING') === 'true',
       }),
     }),
-    // Подключение всех функциональных модулей приложения
+    
     AiModule,
     UsersModule,
     AuthModule,
-    DataImportModule,
     DocumentsModule,
     ChatModule,
-    SubscriptionsModule,
-    FinanceModule,
+    GeneratedDocument,DashboardModule,
     TasksModule,
-    GeneratedDocument
+    ApartmentModule
+
   ],
-  controllers: [AppController], // Корневой контроллер
-  providers: [AppService], // Корневой сервис
+  controllers: [AppController],
+  providers: [AppService],
 })
 export class AppModule {}

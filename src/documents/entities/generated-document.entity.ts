@@ -1,7 +1,6 @@
 // src/documents/entities/generated-document.entity.ts
-import { User } from "src/users/entities/user.entity";
+import { User } from "../../users/entities/user.entity";
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne } from "typeorm";
-import { v4 as uuidv4 } from 'uuid';
 
 @Entity('generated_documents')
 export class GeneratedDocument {

@@ -9,9 +9,6 @@ import { ChatType } from './entities/chat-message.entity';
 export class ChatController {
   constructor(private readonly chatHistoryService: ChatHistoryService) {}
 
-  /**
-   * Эндпоинт для получения истории "ИИ-Чат" (общий чат).
-   */
   @UseGuards(JwtAuthGuard)
   @Get('history/general')
   @Header('Cache-Control', 'no-store') // Добавляем заголовок для надежности
@@ -20,9 +17,6 @@ export class ChatController {
     return this.chatHistoryService.getHistoryForUser(userId, ChatType.GENERAL);
   }
 
-  /**
-   * Эндпоинт для получения истории "ИИ-Документы".
-   */
   @UseGuards(JwtAuthGuard)
   @Get('history/document')
   @Header('Cache-Control', 'no-store')

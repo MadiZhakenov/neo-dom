@@ -23,7 +23,9 @@
     "migration:run:local": "npm run typeorm:local -- migration:run",
     "migration:revert": "npm run typeorm -- migration:revert",
     "db:migrate:prod": "typeorm migration:run -d dist/data-source.js",
-    "cache": "node cache-knowledge-base.js"
+    "cache": "node cache-knowledge-base.js",
+    "test:ai": "ts-node src/ai/test-ai-service.ts",
+    "test:ai:full": "ts-node src/ai/test-ai-service.ts --full"
   },
   "dependencies": {
     "@google/genai": "^1.10.0",
